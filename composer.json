@@ -7,9 +7,13 @@
     "license": "MIT",
     "require": {
         "php": "^8.2",
+        "google/cloud-speech": "^2.3",
+        "google/cloud-text-to-speech": "^2.6",
         "laravel/framework": "^12.0",
         "laravel/sanctum": "^4.0",
-        "laravel/tinker": "^2.10.1"
+        "laravel/tinker": "^2.10.1",
+        "pusher/pusher-php-server": "^7.2",
+        "ratchet/pawl": "^0.4.3"
     },
     "require-dev": {
         "fakerphp/faker": "^1.23",

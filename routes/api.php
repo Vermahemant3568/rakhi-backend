@@ -6,6 +6,8 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\SubscriptionController;
 use App\Http\Controllers\Api\OnboardingController;
 use App\Http\Controllers\Api\PaymentController;
+use App\Http\Controllers\Api\ChatController;
+use App\Http\Controllers\Api\VoiceCallController;
 
 Route::post('/send-otp', [AuthController::class, 'sendOtp']);
 Route::post('/verify-otp', [AuthController::class, 'verifyOtp']);
@@ -29,6 +31,13 @@ Route::middleware('auth:sanctum')->group(function () {
     // Monthly subscription
     Route::post('/payment/subscription/create', [PaymentController::class, 'createMonthlySubscription']);
     Route::post('/payment/subscription/verify', [PaymentController::class, 'verifyMonthlySubscription']);
+
+    // Chat
+    Route::post('/chat/send', [ChatController::class, 'send']);
+
+    // Voice calls
+    Route::post('/voice/start', [VoiceCallController::class, 'start']);
+    Route::post('/voice/end/{id}', [VoiceCallController::class, 'end']);
 
 });
 

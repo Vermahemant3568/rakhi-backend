@@ -7,6 +7,10 @@ use App\Http\Controllers\Admin\LanguageController;
 use App\Http\Controllers\Admin\GoalController;
 use App\Http\Controllers\Admin\SystemSettingController;
 use App\Http\Controllers\Admin\PaymentController;
+use App\Http\Controllers\Admin\RakhiRuleController;
+use App\Http\Controllers\Admin\PromptTemplateController;
+use App\Http\Controllers\Admin\AiModelController;
+use App\Http\Controllers\Admin\MemoryPolicyController;
 
 Route::get('/', function () {
     return view('welcome');
@@ -42,6 +46,19 @@ Route::prefix('admin')->name('admin.')->group(function () {
         Route::get('/revenue', [PaymentController::class, 'revenueSummary'])->name('revenue.summary');
         Route::get('/subscribers/active', [PaymentController::class, 'activeSubscribers'])->name('subscribers.active');
         Route::get('/subscribers/trial', [PaymentController::class, 'trialUsers'])->name('subscribers.trial');
+        
+        // AI Control Panel Routes
+        Route::resource('rakhi-rules', RakhiRuleController::class);
+        Route::post('rakhi-rules/{rakhiRule}/toggle', [RakhiRuleController::class, 'toggle'])->name('rakhi-rules.toggle');
+        
+        Route::resource('prompt-templates', PromptTemplateController::class);
+        Route::post('prompt-templates/{promptTemplate}/toggle', [PromptTemplateController::class, 'toggle'])->name('prompt-templates.toggle');
+        
+        Route::resource('ai-models', AiModelController::class);
+        Route::post('ai-models/{aiModel}/activate', [AiModelController::class, 'activate'])->name('ai-models.activate');
+        
+        Route::resource('memory-policies', MemoryPolicyController::class);
+        Route::post('memory-policies/{memoryPolicy}/toggle', [MemoryPolicyController::class, 'toggle'])->name('memory-policies.toggle');
         
         Route::post('/logout', function () {
             session()->forget(['admin_id', 'admin_email']);
