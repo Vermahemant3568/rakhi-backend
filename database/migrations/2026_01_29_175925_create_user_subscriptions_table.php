@@ -12,24 +12,27 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('user_subscriptions', function (Blueprint $table) {
-    $table->id();
-    $table->foreignId('user_id')->constrained()->onDelete('cascade');
+            $table->id();
+            $table->foreignId('user_id')->constrained()->onDelete('cascade');
 
-    $table->enum('status', [
-        'trial',
-        'active',
-        'expired',
-        'cancelled'
-    ]);
+            $table->enum('status', [
+                'trial',
+                'active',
+                'expired',
+                'cancelled'
+            ]);
 
-    $table->date('trial_start')->nullable();
-    $table->date('trial_end')->nullable();
+            $table->date('trial_start')->nullable();
+            $table->date('trial_end')->nullable();
 
-    $table->string('razorpay_subscription_id')->nullable();
-    $table->date('current_period_end')->nullable();
+            $table->date('current_period_start')->nullable();
+            $table->date('current_period_end')->nullable();
 
-    $table->timestamps();
-});
+            $table->string('payment_provider')->nullable(); // razorpay
+            $table->string('provider_subscription_id')->nullable();
+
+            $table->timestamps();
+        });
 
     }
 

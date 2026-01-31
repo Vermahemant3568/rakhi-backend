@@ -21,7 +21,7 @@ class AuthController extends Controller
         DB::table('otp_logs')->insert([
             'mobile' => $request->mobile,
             'otp' => $otp,
-            'expires_at' => Carbon::now()->addMinutes(5),
+            'expires_at' => Carbon::now()->addMinutes(1),
             'created_at' => now(),
             'updated_at' => now()
         ]);

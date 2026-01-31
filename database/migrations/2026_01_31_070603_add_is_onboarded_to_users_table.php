@@ -11,12 +11,9 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('system_settings', function (Blueprint $table) {
-        $table->id();
-        $table->string('key')->unique();
-        $table->text('value')->nullable();
-        $table->timestamps();
-    });
+        Schema::table('users', function (Blueprint $table) {
+            $table->boolean('is_onboarded')->default(false)->after('is_active');
+        });
     }
 
     /**
@@ -24,6 +21,8 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::dropIfExists('system_settings');
+        Schema::table('users', function (Blueprint $table) {
+            $table->dropColumn('is_onboarded');
+        });
     }
 };
