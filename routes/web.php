@@ -6,6 +6,7 @@ use App\Http\Controllers\Admin\AuthController;
 use App\Http\Controllers\Admin\LanguageController;
 use App\Http\Controllers\Admin\GoalController;
 use App\Http\Controllers\Admin\SystemSettingController;
+use App\Http\Controllers\Admin\PaymentController;
 
 Route::get('/', function () {
     return view('welcome');
@@ -36,6 +37,11 @@ Route::prefix('admin')->name('admin.')->group(function () {
         
         Route::get('/settings', [SystemSettingController::class, 'index'])->name('settings.index');
         Route::post('/settings', [SystemSettingController::class, 'update'])->name('settings.update');
+        
+        Route::get('/payments', [PaymentController::class, 'transactions'])->name('payments.index');
+        Route::get('/revenue', [PaymentController::class, 'revenueSummary'])->name('revenue.summary');
+        Route::get('/subscribers/active', [PaymentController::class, 'activeSubscribers'])->name('subscribers.active');
+        Route::get('/subscribers/trial', [PaymentController::class, 'trialUsers'])->name('subscribers.trial');
         
         Route::post('/logout', function () {
             session()->forget(['admin_id', 'admin_email']);

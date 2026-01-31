@@ -20,17 +20,17 @@
     
     <div class="row mt-4">
         <div class="col-md-3">
-            <div class="card bg-primary text-white">
+            <div class="card bg-success text-white">
                 <div class="card-body">
-                    <h5><i class="fas fa-users"></i> Total Users</h5>
-                    <h3>0</h3>
+                    <h5><i class="fas fa-rupee-sign"></i> Total Revenue</h5>
+                    <h3>₹0</h3>
                 </div>
             </div>
         </div>
         <div class="col-md-3">
-            <div class="card bg-success text-white">
+            <div class="card bg-primary text-white">
                 <div class="card-body">
-                    <h5><i class="fas fa-language"></i> Languages</h5>
+                    <h5><i class="fas fa-users"></i> Active Subscribers</h5>
                     <h3>0</h3>
                 </div>
             </div>
@@ -38,7 +38,7 @@
         <div class="col-md-3">
             <div class="card bg-warning text-white">
                 <div class="card-body">
-                    <h5><i class="fas fa-bullseye"></i> Goals</h5>
+                    <h5><i class="fas fa-clock"></i> Trial Users</h5>
                     <h3>0</h3>
                 </div>
             </div>
@@ -46,7 +46,7 @@
         <div class="col-md-3">
             <div class="card bg-info text-white">
                 <div class="card-body">
-                    <h5><i class="fas fa-chart-line"></i> Active</h5>
+                    <h5><i class="fas fa-credit-card"></i> Total Payments</h5>
                     <h3>0</h3>
                 </div>
             </div>

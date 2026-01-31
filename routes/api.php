@@ -5,6 +5,7 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\SubscriptionController;
 use App\Http\Controllers\Api\OnboardingController;
+use App\Http\Controllers\Api\PaymentController;
 
 Route::post('/send-otp', [AuthController::class, 'sendOtp']);
 Route::post('/verify-otp', [AuthController::class, 'verifyOtp']);
@@ -20,6 +21,14 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Start trial after onboarding + payment
     Route::post('/subscription/start-trial', [SubscriptionController::class, 'startTrial']);
+
+    // Trial
+    Route::post('/payment/trial/order', [PaymentController::class, 'createTrialOrder']);
+    Route::post('/payment/trial/verify', [PaymentController::class, 'verifyTrialPayment']);
+
+    // Monthly subscription
+    Route::post('/payment/subscription/create', [PaymentController::class, 'createMonthlySubscription']);
+    Route::post('/payment/subscription/verify', [PaymentController::class, 'verifyMonthlySubscription']);
 
 });
 

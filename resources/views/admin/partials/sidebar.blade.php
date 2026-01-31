@@ -19,5 +19,11 @@
         <a class="nav-link text-white" href="{{ route('admin.settings.index') }}">
             <i class="fas fa-cog"></i> Settings
         </a>
+        <a class="nav-link text-white" href="{{ route('admin.payments.index') }}">
+            <i class="fas fa-credit-card"></i> Payments
+        </a>
+        <a class="nav-link text-white" href="{{ route('admin.revenue.summary') }}">
+            <i class="fas fa-chart-bar"></i> Revenue
+        </a>
     </nav>
 </div>
