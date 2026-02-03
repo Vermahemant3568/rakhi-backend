@@ -61,4 +61,9 @@ class User extends Authenticatable
     {
         return $this->belongsToMany(Goal::class, 'user_goals');
     }
+
+    public function subscription()
+    {
+        return $this->hasOne(UserSubscription::class);
+    }
 }

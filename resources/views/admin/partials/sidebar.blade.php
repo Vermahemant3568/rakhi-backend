@@ -28,17 +28,20 @@
         <!-- System Management -->
         <div class="nav-section mt-3">
             <h6 class="text-muted px-3 mb-2">SYSTEM</h6>
+            <a class="nav-link text-white" href="{{ route('admin.security') }}">
+                <i class="fas fa-shield-alt"></i> Security
+            </a>
             <a class="nav-link text-white" href="{{ route('admin.languages.index') }}">
                 <i class="fas fa-language"></i> Language Manager
             </a>
             <a class="nav-link text-white" href="{{ route('admin.goals.index') }}">
                 <i class="fas fa-bullseye"></i> Goal Manager
             </a>
-            <a class="nav-link text-white" href="#">
+            <a class="nav-link text-white" href="{{ route('admin.users.index') }}">
                 <i class="fas fa-users"></i> Users
             </a>
             <a class="nav-link text-white" href="{{ route('admin.settings.index') }}">
-                <i class="fas fa-cog"></i> Settings
+                <i class="fas fa-credit-card"></i> Subscription Settings
             </a>
         </div>
         
@@ -46,10 +49,7 @@
         <div class="nav-section mt-3">
             <h6 class="text-muted px-3 mb-2">FINANCIAL</h6>
             <a class="nav-link text-white" href="{{ route('admin.payments.index') }}">
-                <i class="fas fa-credit-card"></i> Payments
-            </a>
-            <a class="nav-link text-white" href="{{ route('admin.revenue.summary') }}">
-                <i class="fas fa-chart-bar"></i> Revenue
+                <i class="fas fa-credit-card"></i> Payments & Revenue
             </a>
         </div>
     </nav>

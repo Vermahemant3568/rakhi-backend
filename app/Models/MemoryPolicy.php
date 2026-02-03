@@ -8,7 +8,9 @@ class MemoryPolicy extends Model
 {
     protected $fillable = [
         'type',
-        'store',
-        'priority'
+        'description',
+        'is_active',
+        'priority',
+        'retention_days'
     ];
 }

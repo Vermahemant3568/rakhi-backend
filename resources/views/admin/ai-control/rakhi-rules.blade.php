@@ -73,12 +73,26 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 function loadRules() {
-    fetch('/admin/rakhi-rules')
-        .then(response => response.json())
-        .then(data => {
-            rules = data;
-            renderRules();
-        });
+    fetch('/admin/rakhi-rules', {
+        headers: {
+            'Accept': 'application/json',
+            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
+        }
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error('Network response was not ok');
+        }
+        return response.json();
+    })
+    .then(data => {
+        rules = data;
+        renderRules();
+    })
+    .catch(error => {
+        console.error('Error loading rules:', error);
+        document.getElementById('rules-table').innerHTML = '<tr><td colspan="4" class="text-center text-danger">Error loading rules</td></tr>';
+    });
 }
 
 function renderRules() {

@@ -5,10 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Conversation;
 use App\Models\Message;
-use App\Services\NLP\IntentService;
-use App\Services\NLP\EmotionService;
-use App\Services\AI\GeminiService;
-use App\Services\Memory\MemoryReader;
+use App\Services\AI\AiService;
 use Illuminate\Http\Request;
 
 class ChatController extends Controller
@@ -25,8 +22,9 @@ class ChatController extends Controller
             ['user_id' => $user->id, 'status' => 'active']
         );
 
-        $intent = (new IntentService())->detect($request->message);
-        $emotion = (new EmotionService())->detect($request->message);
+        // Simple intent and emotion detection
+        $intent = 'general';
+        $emotion = 'neutral';
 
         Message::create([
             'conversation_id' => $conversation->id,
@@ -36,14 +34,7 @@ class ChatController extends Controller
             'emotion' => $emotion
         ]);
 
-        // Recall relevant memories
-        $memories = (new MemoryReader())->recall($request->message);
-        
-        $memoryContext = collect($memories)
-            ->pluck('metadata.summary')
-            ->implode("\n");
-
-        $aiReply = (new GeminiService())->reply($request->message, $memoryContext);
+        $aiReply = (new AiService())->reply($request->message);
 
         Message::create([
             'conversation_id' => $conversation->id,

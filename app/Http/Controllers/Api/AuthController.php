@@ -62,19 +62,33 @@ class AuthController extends Controller
             ->where('id', $otpRow->id)
             ->update(['is_used' => true]);
 
-        $user = User::firstOrCreate(
+        $user = User::with('subscription')->firstOrCreate(
             ['mobile' => $request->mobile],
             ['mobile_verified_at' => now()]
         );
 
         $token = $user->createToken('user-token')->plainTextToken;
 
+        // Determine subscription status
+        $subscriptionStatus = 'none';
+        if ($user->subscription) {
+            $now = now();
+            if ($user->subscription->status === 'active' && $user->subscription->current_period_end > $now) {
+                $subscriptionStatus = 'active';
+            } elseif ($user->subscription->status === 'trial' && $user->subscription->trial_end > $now) {
+                $subscriptionStatus = 'trial';
+            } else {
+                $subscriptionStatus = 'expired';
+            }
+        }
+
         return response()->json([
             'success' => true,
             'message' => 'Login successful',
             'data' => [
                 'token' => $token,
-                'is_onboarded' => false
+                'is_onboarded' => $user->is_onboarded,
+                'subscription_status' => $subscriptionStatus
             ]
         ]);
     }

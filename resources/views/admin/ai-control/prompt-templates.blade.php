@@ -83,12 +83,26 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 function loadTemplates() {
-    fetch('/admin/prompt-templates')
-        .then(response => response.json())
-        .then(data => {
-            templates = data;
-            renderTemplates();
-        });
+    fetch('/admin/prompt-templates', {
+        headers: {
+            'Accept': 'application/json',
+            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
+        }
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error('Network response was not ok');
+        }
+        return response.json();
+    })
+    .then(data => {
+        templates = data;
+        renderTemplates();
+    })
+    .catch(error => {
+        console.error('Error loading templates:', error);
+        document.getElementById('templates-table').innerHTML = '<tr><td colspan="4" class="text-center text-danger">Error loading templates</td></tr>';
+    });
 }
 
 function renderTemplates() {

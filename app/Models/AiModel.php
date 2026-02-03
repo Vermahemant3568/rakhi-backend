@@ -9,6 +9,6 @@ class AiModel extends Model
     protected $fillable = [
         'provider',
         'model_name',
-        'is_active'
+        'is_active',
     ];
 }

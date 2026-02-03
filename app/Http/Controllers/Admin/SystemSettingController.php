@@ -10,15 +10,32 @@ class SystemSettingController extends Controller
 {
     public function index()
     {
-        $settings = SystemSetting::all()->pluck('value', 'key');
-        return view('admin.settings.index', compact('settings'));
+        return view('admin.settings.index');
+    }
+    
+    public function data()
+    {
+        $defaults = [
+            'trial_price' => '7',
+            'trial_days' => '7', 
+            'monthly_price' => '299',
+            'subscription_grace_days' => '0',
+            'autopay_required' => 'true',
+            'voice_call_only' => 'true',
+            'audio_message_allowed' => 'false'
+        ];
+        
+        $settings = SystemSetting::all()->pluck('value', 'key')->toArray();
+        $settings = array_merge($defaults, $settings);
+        
+        return response()->json($settings);
     }
     
     public function update(Request $request)
     {
         $request->validate([
             'trial_price' => 'required|numeric|min:0',
-            'trial_days' => 'required|integer|min:0',
+            'trial_days' => 'required|integer|min:1',
             'monthly_price' => 'required|numeric|min:0',
             'subscription_grace_days' => 'required|integer|min:0',
             'autopay_required' => 'required|boolean',
@@ -33,6 +50,6 @@ class SystemSettingController extends Controller
             SystemSetting::set($key, $value);
         }
         
-        return redirect()->route('admin.settings.index')->with('success', 'Settings updated successfully');
+        return response()->json(['message' => 'Settings updated successfully']);
     }
 }

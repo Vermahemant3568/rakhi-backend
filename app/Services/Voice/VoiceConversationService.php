@@ -4,7 +4,7 @@ namespace App\Services\Voice;
 
 use App\Services\Voice\GoogleStreamingSTT;
 use App\Services\Voice\GoogleStreamingTTS;
-use App\Services\AI\GeminiService;
+use App\Services\AI\AiService;
 use App\Services\Safety\MedicalSafetyService;
 use App\Services\Safety\SafeResponses;
 use App\Services\Safety\FallbackResponses;
@@ -75,7 +75,7 @@ class VoiceConversationService
 
                     // Normal AI flow with fallback
                     try {
-                        $replyText = (new GeminiService())->reply($spokenText, $memoryContext);
+                        $replyText = (new AiService())->reply($spokenText, $memoryContext, 'voice');
                     } catch (\Exception $e) {
                         $replyText = FallbackResponses::aiFail();
                     }

@@ -12,6 +12,9 @@ use App\Http\Controllers\Api\VoiceCallController;
 Route::post('/send-otp', [AuthController::class, 'sendOtp']);
 Route::post('/verify-otp', [AuthController::class, 'verifyOtp']);
 
+// Test chat route (bypass complex services)
+Route::middleware('auth:sanctum')->post('/test-chat', [App\Http\Controllers\Api\TestChatController::class, 'testChat']);
+
 // Public routes for onboarding data
 Route::get('/languages', [OnboardingController::class, 'getLanguages']);
 Route::get('/goals', [OnboardingController::class, 'getGoals']);

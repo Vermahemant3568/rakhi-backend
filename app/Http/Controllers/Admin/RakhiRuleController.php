@@ -18,14 +18,16 @@ class RakhiRuleController extends Controller
         return view('admin.ai-control.rakhi-rules');
     }
 
-    public function update(Request $request, RakhiRule $rule)
+    public function update(Request $request, $id)
     {
+        $rule = RakhiRule::findOrFail($id);
         $rule->update($request->only(['value', 'is_active']));
         return response()->json($rule);
     }
 
-    public function toggle(RakhiRule $rule)
+    public function toggle($id)
     {
+        $rule = RakhiRule::findOrFail($id);
         $rule->update(['is_active' => !$rule->is_active]);
         return response()->json($rule);
     }

@@ -14,11 +14,14 @@ return new class extends Migration
         Schema::create('memory_policies', function (Blueprint $table) {
             $table->id();
 
-            $table->string('type'); 
-            // preference, condition, emotion, habit
+            $table->string('type')->unique(); 
+            // emotional_state, goals, preferences, health_data, conversations, achievements, concerns, relationships, habits, feedback
 
-            $table->boolean('store')->default(true);
-            $table->integer('priority')->default(1);
+            $table->boolean('store_memory')->default(true);
+            $table->boolean('is_active')->default(true);
+            $table->integer('priority')->default(5);
+            $table->integer('retention_days')->default(365); // How long to keep memories
+            $table->text('description')->nullable();
 
             $table->timestamps();
         });

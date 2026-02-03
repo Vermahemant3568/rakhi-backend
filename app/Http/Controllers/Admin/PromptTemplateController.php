@@ -24,14 +24,16 @@ class PromptTemplateController extends Controller
         return response()->json($template);
     }
 
-    public function update(Request $request, PromptTemplate $template)
+    public function update(Request $request, $id)
     {
+        $template = PromptTemplate::findOrFail($id);
         $template->update($request->only(['template', 'is_active']));
         return response()->json($template);
     }
 
-    public function toggle(PromptTemplate $template)
+    public function toggle($id)
     {
+        $template = PromptTemplate::findOrFail($id);
         $template->update(['is_active' => !$template->is_active]);
         return response()->json($template);
     }

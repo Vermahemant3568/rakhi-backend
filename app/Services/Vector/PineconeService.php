@@ -3,39 +3,40 @@
 namespace App\Services\Vector;
 
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
 class PineconeService
 {
-    protected string $baseUrl;
-
-    public function __construct()
+    public function query(array $vector, array $options = []): array
     {
-        $this->baseUrl = env('PINECONE_HOST');
-    }
+        try {
+            $host = env('PINECONE_HOST');
+            $apiKey = env('PINECONE_API_KEY');
+            
+            if (!$host || !$apiKey) {
+                Log::error('Pinecone configuration missing');
+                return ['matches' => []];
+            }
+            
+            $response = Http::withHeaders([
+                'Api-Key' => $apiKey,
+                'Content-Type' => 'application/json'
+            ])->post("{$host}/query", array_merge([
+                'vector' => $vector,
+                'topK' => 5,
+                'includeMetadata' => true
+            ], $options));
 
-    public function upsert(string $id, array $vector, array $metadata = [])
-    {
-        return Http::withHeaders([
-            'Api-Key' => env('PINECONE_API_KEY'),
-            'Content-Type' => 'application/json'
-        ])->post($this->baseUrl . '/vectors/upsert', [
-            'vectors' => [[
-                'id' => $id,
-                'values' => $vector,
-                'metadata' => $metadata
-            ]]
-        ]);
-    }
-
-    public function query(array $vector, int $topK = 5)
-    {
-        return Http::withHeaders([
-            'Api-Key' => env('PINECONE_API_KEY'),
-            'Content-Type' => 'application/json'
-        ])->post($this->baseUrl . '/query', [
-            'vector' => $vector,
-            'topK' => $topK,
-            'includeMetadata' => true
-        ]);
+            if ($response->successful()) {
+                return $response->json();
+            }
+            
+            Log::error('Pinecone API Error: ' . $response->body());
+            return ['matches' => []];
+            
+        } catch (\Exception $e) {
+            Log::error('Pinecone Service Error: ' . $e->getMessage());
+            return ['matches' => []];
+        }
     }
 }
