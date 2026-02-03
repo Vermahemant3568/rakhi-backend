@@ -7,6 +7,7 @@
     "license": "MIT",
     "require": {
         "php": "^8.2",
+        "barryvdh/laravel-dompdf": "^3.1",
         "google/cloud-speech": "^2.3",
         "google/cloud-text-to-speech": "^2.6",
         "laravel/framework": "^12.0",

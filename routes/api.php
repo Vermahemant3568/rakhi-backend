@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\OnboardingController;
 use App\Http\Controllers\Api\PaymentController;
 use App\Http\Controllers\Api\ChatController;
 use App\Http\Controllers\Api\VoiceCallController;
+use App\Http\Controllers\Api\ReportController;
 
 Route::post('/send-otp', [AuthController::class, 'sendOtp']);
 Route::post('/verify-otp', [AuthController::class, 'verifyOtp']);
@@ -41,6 +42,11 @@ Route::middleware('auth:sanctum')->group(function () {
     // Voice calls
     Route::post('/voice/start', [VoiceCallController::class, 'start']);
     Route::post('/voice/end/{id}', [VoiceCallController::class, 'end']);
+    
+    // Reports
+    Route::post('/reports/generate', [ReportController::class, 'generate']);
+    Route::get('/reports', [ReportController::class, 'index']);
+    Route::get('/reports/{id}/download', [ReportController::class, 'download']);
 
 });
 
