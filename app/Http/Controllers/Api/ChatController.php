@@ -5,7 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Conversation;
 use App\Models\Message;
-use App\Services\AI\AiService;
+use App\Services\Coach\CoachService;
 use Illuminate\Http\Request;
 
 class ChatController extends Controller
@@ -34,7 +34,9 @@ class ChatController extends Controller
             'emotion' => $emotion
         ]);
 
-        $aiReply = (new AiService())->reply($request->message);
+        // Use the complete Coach flow
+        $coachService = new CoachService();
+        $aiReply = $coachService->processMessage($user, $request->message);
 
         Message::create([
             'conversation_id' => $conversation->id,

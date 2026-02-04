@@ -13,4 +13,9 @@ class Message extends Model
         'intent',
         'emotion'
     ];
+
+    public function attachments()
+    {
+        return $this->hasMany(MessageAttachment::class);
+    }
 }
