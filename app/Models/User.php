@@ -71,4 +71,9 @@ class User extends Authenticatable
     {
         return $this->hasMany(DailyCheckin::class);
     }
+
+    public function messages()
+    {
+        return $this->hasManyThrough(Message::class, Conversation::class);
+    }
 }

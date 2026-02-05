@@ -13,6 +13,17 @@ class UserProfile extends Model
         'gender',
         'dob',
         'height_cm',
-        'weight_kg'
+        'weight_kg',
+        'timezone'
     ];
+
+    public function user()
+    {
+        return $this->belongsTo(User::class);
+    }
+
+    public function getFullNameAttribute()
+    {
+        return trim($this->first_name . ' ' . $this->last_name);
+    }
 }

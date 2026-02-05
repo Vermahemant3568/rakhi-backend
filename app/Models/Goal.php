@@ -8,7 +8,7 @@ class Goal extends Model
 {
     protected $fillable = [
         'title',
-        'slug',
+        'slug', 
         'description',
         'is_active'
     ];
@@ -16,4 +16,9 @@ class Goal extends Model
     protected $casts = [
         'is_active' => 'boolean'
     ];
+    
+    public function users()
+    {
+        return $this->belongsToMany(User::class, 'user_goals');
+    }
 }

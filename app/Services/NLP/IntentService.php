@@ -2,42 +2,60 @@
 
 namespace App\Services\NLP;
 
-use App\Services\AI\AiService;
-
 class IntentService
 {
-    public function detect(string $text): string
-    {
-        try {
-            $prompt = "Classify the intent of this text. Respond with only one word: diet, fitness, emotional_support, chronic_condition, or general.\n\nText: {$text}";
-            
-            $response = (new AiService())->reply($prompt);
-            $intent = strtolower(trim($response));
-            
-            // Validate response
-            $validIntents = ['diet', 'fitness', 'emotional_support', 'chronic_condition', 'general'];
-            return in_array($intent, $validIntents) ? $intent : $this->fallbackDetection($text);
-            
-        } catch (\Exception $e) {
-            return $this->fallbackDetection($text);
-        }
-    }
-    
-    private function fallbackDetection(string $text): string
+    public function analyze(string $text): string
     {
         $text = strtolower($text);
         
-        if (str_contains($text, 'diet') || str_contains($text, 'food')) {
-            return 'diet';
+        // Meal logging intent
+        if (preg_match('/\b(ate|had|eaten|consumed|finished|meal|breakfast|lunch|dinner|snack|calories|portions?)\b/', $text)) {
+            return 'meal_logging';
         }
-        if (str_contains($text, 'exercise') || str_contains($text, 'workout')) {
-            return 'fitness';
+        
+        // Emotional eating patterns
+        if (preg_match('/\b(stress eat|comfort food|binge|overate|couldn\'t stop|emotional eating|ate because|feeling hungry but)\b/', $text)) {
+            return 'emotional_eating';
         }
-        if (str_contains($text, 'sad') || str_contains($text, 'stress')) {
-            return 'emotional_support';
+        
+        // Motivation drop signals
+        if (preg_match('/\b(give up|quit|can\'t do|too hard|not working|no point|demotivated|lost motivation|want to stop)\b/', $text)) {
+            return 'motivation_drop';
         }
-        if (str_contains($text, 'diabetes') || str_contains($text, 'sugar')) {
-            return 'chronic_condition';
+        
+        // Asking for call/support
+        if (preg_match('/\b(call me|talk to|need support|want to talk|feeling alone|need help|can we talk|mujhe call|call kr|call kro|baat karna|voice call)\b/', $text)) {
+            return 'asking_for_call';
+        }
+        
+        // Progress check requests
+        if (preg_match('/\b(how am i doing|progress|check|review|assessment|where do i stand|am i improving)\b/', $text)) {
+            return 'progress_check';
+        }
+        
+        // Exercise/Fitness related
+        if (preg_match('/\b(workout|exercise|gym|run|walk|fitness|training|cardio|strength|yoga)\b/', $text)) {
+            return 'exercise_update';
+        }
+        
+        // Goal progress
+        if (preg_match('/\b(goal|target|achieve|success|plan|planning|objective)\b/', $text)) {
+            return 'goal_progress';
+        }
+        
+        // Habit tracking
+        if (preg_match('/\b(habit|routine|daily|regular|practice|consistency|track)\b/', $text)) {
+            return 'habit_check';
+        }
+        
+        // Emotional states
+        if (preg_match('/\b(feel|feeling|mood|emotion|sad|happy|stressed|angry|frustrated|motivated)\b/', $text)) {
+            return 'emotional_state';
+        }
+        
+        // Health concerns
+        if (preg_match('/\b(health|sick|pain|diabetes|sugar|pressure|medical|symptoms)\b/', $text)) {
+            return 'health_concern';
         }
         
         return 'general';

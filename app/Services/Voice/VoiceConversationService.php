@@ -4,12 +4,14 @@ namespace App\Services\Voice;
 
 use App\Services\Voice\GoogleStreamingSTT;
 use App\Services\Voice\GoogleStreamingTTS;
-use App\Services\AI\AiService;
+use App\Services\Coach\CoachService;
 use App\Services\Safety\MedicalSafetyService;
 use App\Services\Safety\SafeResponses;
 use App\Services\Safety\FallbackResponses;
 use App\Services\Safety\CallTerminationService;
-use App\Services\Memory\MemoryReader;
+use App\Models\Conversation;
+use App\Models\Message;
+use App\Services\Memory\MemoryManager;
 
 class VoiceConversationService
 {
@@ -17,11 +19,23 @@ class VoiceConversationService
     protected GoogleStreamingTTS $tts;
     protected int $failureCount = 0;
     protected bool $emergencyHandled = false;
+    protected $user;
+    protected $voiceSession;
+    protected $conversation;
 
-    public function __construct()
+    public function __construct($user = null, $voiceSession = null)
     {
         $this->stt = new GoogleStreamingSTT();
         $this->tts = new GoogleStreamingTTS();
+        $this->user = $user;
+        $this->voiceSession = $voiceSession;
+
+        // Create or get conversation for voice session
+        if ($user && $voiceSession) {
+            $this->conversation = Conversation::firstOrCreate(
+                ['user_id' => $user->id, 'status' => 'active']
+            );
+        }
 
         $this->stt->start();
     }
@@ -51,33 +65,95 @@ class VoiceConversationService
                     // Reset failure count on successful STT
                     $this->failureCount = 0;
 
+                    // Store user voice message
+                    if ($this->conversation) {
+                        Message::create([
+                            'conversation_id' => $this->conversation->id,
+                            'voice_session_id' => $this->voiceSession->id ?? null,
+                            'sender' => 'user',
+                            'message' => $spokenText,
+                            'intent' => 'voice_input',
+                            'emotion' => 'neutral'
+                        ]);
+                    }
+
                     // Check for call termination keywords
                     if ((new CallTerminationService())->shouldEndCall($spokenText)) {
-                        return $this->tts->synthesize(
-                            (new CallTerminationService())->endCallMessage()
-                        );
+                        $terminationMessage = (new CallTerminationService())->endCallMessage();
+                        
+                        // Store termination message
+                        if ($this->conversation) {
+                            Message::create([
+                                'conversation_id' => $this->conversation->id,
+                                'voice_session_id' => $this->voiceSession->id ?? null,
+                                'sender' => 'rakhi',
+                                'message' => $terminationMessage,
+                                'intent' => 'call_termination',
+                                'emotion' => 'neutral'
+                            ]);
+                        }
+                        
+                        return $this->tts->synthesize($terminationMessage);
                     }
 
                     // 🚨 Safety check FIRST
                     if ((new MedicalSafetyService())->isCritical($spokenText)) {
                         $this->emergencyHandled = true;
-                        return $this->tts->synthesize(
-                            SafeResponses::emergency()
-                        );
+                        $emergencyResponse = SafeResponses::emergency();
+                        
+                        // Store emergency response
+                        if ($this->conversation) {
+                            Message::create([
+                                'conversation_id' => $this->conversation->id,
+                                'voice_session_id' => $this->voiceSession->id ?? null,
+                                'sender' => 'rakhi',
+                                'message' => $emergencyResponse,
+                                'intent' => 'emergency_response',
+                                'emotion' => 'urgent'
+                            ]);
+                        }
+                        
+                        return $this->tts->synthesize($emergencyResponse);
                     }
 
-                    // Recall relevant memories
-                    $memories = (new MemoryReader())->recall($spokenText);
-                    
-                    $memoryContext = collect($memories)
-                        ->pluck('metadata.summary')
-                        ->implode("\n");
-
-                    // Normal AI flow with fallback
+                    // Use enhanced CoachService with reasoning engine
                     try {
-                        $replyText = (new AiService())->reply($spokenText, $memoryContext, 'voice');
+                        if ($this->user) {
+                            $coachService = new CoachService();
+                            $replyText = $coachService->processMessage($this->user, $spokenText);
+                        } else {
+                            $replyText = FallbackResponses::aiFail();
+                        }
                     } catch (\Exception $e) {
                         $replyText = FallbackResponses::aiFail();
+                    }
+
+                    // Store Rakhi's voice response
+                    if ($this->conversation) {
+                        Message::create([
+                            'conversation_id' => $this->conversation->id,
+                            'voice_session_id' => $this->voiceSession->id ?? null,
+                            'sender' => 'rakhi',
+                            'message' => $replyText,
+                            'intent' => 'voice_response',
+                            'emotion' => 'supportive'
+                        ]);
+                    }
+
+                    // Store voice interaction as memory
+                    if ($this->user) {
+                        $memoryManager = new MemoryManager();
+                        $memoryManager->storeMemory(
+                            $this->user->id,
+                            'voice_conversation',
+                            $spokenText,
+                            [
+                                'conversation_id' => $this->conversation->id ?? null,
+                                'voice_session_id' => $this->voiceSession->id ?? null,
+                                'intent' => 'voice_input',
+                                'emotion' => 'neutral'
+                            ]
+                        );
                     }
 
                     // TTS with fallback (handled by caller)

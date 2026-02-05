@@ -54,10 +54,10 @@ class AiService
         
         if (!$apiKey) {
             Log::error('Gemini API key not configured');
-            return 'I understand you. Let\'s work on this together 💙';
+            return 'API configuration issue. Please contact support.';
         }
         
-        $response = Http::post("https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$apiKey}", [
+        $response = Http::timeout(30)->post("https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$apiKey}", [
             'contents' => [
                 [
                     'parts' => [
@@ -72,8 +72,27 @@ class AiService
             return $data['candidates'][0]['content']['parts'][0]['text'] ?? 'I understand you. Let\'s work on this together 💙';
         }
         
+        // Handle specific API errors
+        $statusCode = $response->status();
+        $responseBody = $response->json();
+        
+        if ($statusCode === 429) {
+            Log::warning('Gemini API quota exceeded');
+            return 'API quota exceeded. Please try again later or contact support.';
+        }
+        
+        if ($statusCode === 403) {
+            Log::error('Gemini API access forbidden');
+            return 'API access issue. Please contact support.';
+        }
+        
+        if ($statusCode === 400 && isset($responseBody['error']['message'])) {
+            Log::error('Gemini API Error: ' . $responseBody['error']['message']);
+            return 'API request issue. Please try rephrasing your message.';
+        }
+        
         Log::error('Gemini API Error: ' . $response->body());
-        return 'I understand you. Let\'s work on this together 💙';
+        return 'API service temporarily unavailable. Please try again later.';
     }
     
     private function callOpenAI(string $model, string $prompt): string
@@ -82,10 +101,10 @@ class AiService
         
         if (!$apiKey) {
             Log::error('OpenAI API key not configured');
-            return 'I understand you. Let\'s work on this together 💙';
+            return 'API configuration issue. Please contact support.';
         }
         
-        $response = Http::withHeaders([
+        $response = Http::timeout(30)->withHeaders([
             'Authorization' => 'Bearer ' . $apiKey,
             'Content-Type' => 'application/json',
         ])->post('https://api.openai.com/v1/chat/completions', [
@@ -101,8 +120,27 @@ class AiService
             return $data['choices'][0]['message']['content'] ?? 'I understand you. Let\'s work on this together 💙';
         }
         
+        // Handle specific API errors
+        $statusCode = $response->status();
+        $responseBody = $response->json();
+        
+        if ($statusCode === 429) {
+            Log::warning('OpenAI API quota exceeded');
+            return 'API quota exceeded. Please try again later or contact support.';
+        }
+        
+        if ($statusCode === 401) {
+            Log::error('OpenAI API authentication failed');
+            return 'API authentication issue. Please contact support.';
+        }
+        
+        if ($statusCode === 400 && isset($responseBody['error']['message'])) {
+            Log::error('OpenAI API Error: ' . $responseBody['error']['message']);
+            return 'API request issue. Please try rephrasing your message.';
+        }
+        
         Log::error('OpenAI API Error: ' . $response->body());
-        return 'I understand you. Let\'s work on this together 💙';
+        return 'API service temporarily unavailable. Please try again later.';
     }
     
     private function callClaude(string $model, string $prompt): string
