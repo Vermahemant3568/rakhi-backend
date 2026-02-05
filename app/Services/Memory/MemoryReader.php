@@ -8,31 +8,16 @@ use App\Services\Vector\PineconeService;
 
 class MemoryReader
 {
-    public function recall(string $query, array $types = []): array
+    public function recall(string $query, int $userId): array
     {
-        // Get active memory policies
-        $activePolicies = MemoryPolicy::where('is_active', true)
-            ->where('store_memory', true)
-            ->when(!empty($types), function($q) use ($types) {
-                return $q->whereIn('type', $types);
-            })
-            ->orderBy('priority', 'desc')
-            ->get();
-            
-        if ($activePolicies->isEmpty()) {
-            return [];
-        }
+        $vector = (new EmbeddingService())->embed($query);
 
-        try {
-            $vector = (new EmbeddingService())->embed($query);
-            $result = (new PineconeService())->query($vector, [
-                'filter' => [
-                    'type' => ['$in' => $activePolicies->pluck('type')->toArray()]
-                ]
-            ]);
-            return $result['matches'] ?? [];
-        } catch (\Exception $e) {
-            return [];
-        }
+        $response = (new PineconeService())->query($vector);
+
+        // Filter only this user's memories
+        return collect($response['matches'] ?? [])
+            ->filter(fn($m) => $m['metadata']['user_id'] == $userId)
+            ->values()
+            ->toArray();
     }
 }

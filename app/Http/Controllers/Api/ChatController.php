@@ -19,7 +19,7 @@ class ChatController extends Controller
         ]);
 
         $user = $request->user();
-        $user->load('profile'); // Load user profile
+        $user->load('profile', 'goals'); // Load user profile and goals
 
         $conversation = Conversation::firstOrCreate(
             ['user_id' => $user->id, 'status' => 'active']
@@ -37,9 +37,19 @@ class ChatController extends Controller
             'emotion' => $emotion
         ]);
 
-        // Use the complete Coach flow (now with memory injection)
-        $coachService = new CoachService();
-        $aiReply = $coachService->processMessage($user, $request->message);
+        // Store onboarding data as memories if first conversation
+        if ($conversation->wasRecentlyCreated) {
+            $onboardingService = new \App\Services\Memory\OnboardingMemoryService();
+            $onboardingService->storeOnboardingData($user);
+        }
+
+        // Use the new CoachPromptBuilder for complete context integration
+        $promptBuilder = new \App\Services\Coach\CoachPromptBuilder();
+        $fullPrompt = $promptBuilder->build($user, $request->message);
+        
+        // Get AI response with complete context
+        $aiService = new \App\Services\AI\AiService();
+        $aiReply = $aiService->reply($fullPrompt);
 
         Message::create([
             'conversation_id' => $conversation->id,
@@ -61,6 +71,20 @@ class ChatController extends Controller
                 'emotion' => $emotion
             ]
         );
+
+        // Store Rakhi's reply as memory if it contains meaningful information
+        if ($this->isMeaningfulReply($aiReply)) {
+            $memoryManager->storeMemory(
+                $user->id,
+                'coaching_advice',
+                $aiReply,
+                [
+                    'conversation_id' => $conversation->id,
+                    'response_to' => $request->message,
+                    'type' => 'ai_response'
+                ]
+            );
+        }
 
         return response()->json([
             'success' => true,
@@ -108,6 +132,30 @@ class ChatController extends Controller
                 'error' => $e->getMessage()
             ], 500);
         }
+    }
+
+    /**
+     * Check if Rakhi's reply contains meaningful information worth storing
+     */
+    private function isMeaningfulReply(string $reply): bool
+    {
+        $replyLower = strtolower($reply);
+        
+        // Store replies that contain advice, suggestions, or specific information
+        $meaningfulKeywords = [
+            'suggest', 'recommend', 'try', 'should', 'could', 'advice',
+            'exercise', 'workout', 'eat', 'food', 'goal', 'plan',
+            'remember', 'important', 'tip', 'help', 'improve'
+        ];
+        
+        foreach ($meaningfulKeywords as $keyword) {
+            if (str_contains($replyLower, $keyword)) {
+                return true;
+            }
+        }
+        
+        // Don't store generic greetings or short responses
+        return strlen($reply) > 50;
     }
 
     /**
