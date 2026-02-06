@@ -11,54 +11,32 @@ use App\Models\Goal;
 
 class CoachDecisionEngine
 {
-    protected $intentService;
-    protected $emotionService;
-    protected $memorySelectorService;
-    protected $mealPatternAnalyzer;
-    protected $nutritionInsightService;
-
-    public function __construct()
-    {
-        $this->intentService = new IntentService();
-        $this->emotionService = new EmotionService();
-        $this->memorySelectorService = new MemorySelectorService();
-        $this->mealPatternAnalyzer = new MealPatternAnalyzer();
-        $this->nutritionInsightService = new NutritionInsightService();
-    }
+    public function __construct(
+        private IntentService $intentService,
+        private EmotionService $emotionService,
+        private MemorySelectorService $memorySelectorService,
+        private MealPatternAnalyzer $mealPatternAnalyzer,
+        private NutritionInsightService $nutritionInsightService
+    ) {}
 
     public function processUserInput($user, string $message): array
     {
         try {
-            // Step 1: Intent Analysis
             $intent = $this->intentService->analyze($message);
-            
-            // Step 2: Emotion Detection
             $emotion = $this->emotionService->detect($message);
-            
-            // Step 3: User Goals Context
             $userGoals = $this->getUserGoals($user->id);
-            
-            // Step 4: User Profile Context (with error handling)
             $userProfile = $this->getUserProfile($user);
-            
-            // Step 5: Recent Conversation History (with error handling)
             $conversationHistory = $this->getRecentConversationHistory($user->id);
-            
-            // Step 6: Memory Recall
             $relevantMemories = $this->memorySelectorService->getRelevantMemories($user->id, $message, 5);
             
-            // Step 7: Meal Pattern Analysis (if meal-related)
             $mealAnalysis = null;
             $nutritionInsights = [];
             if ($intent === 'meal_logging') {
                 $mealAnalysis = $this->mealPatternAnalyzer->analyzeMealPattern($user->id, $message, $intent);
                 $nutritionInsights = $this->nutritionInsightService->generateNutritionInsights($user->id, $message);
-                
-                // Store meal pattern memory
                 $this->mealPatternAnalyzer->storeMealMemory($user->id, $message, $mealAnalysis);
             }
             
-            // Step 8: Coach Decision Logic
             $coachDecision = $this->makeCoachDecision($intent, $emotion, $userGoals, $relevantMemories, $message, $mealAnalysis);
             
             return [
@@ -75,7 +53,6 @@ class CoachDecisionEngine
         } catch (\Exception $e) {
             \Log::error('CoachDecisionEngine error: ' . $e->getMessage());
             
-            // Return minimal working data
             return [
                 'intent' => 'general',
                 'emotion' => 'neutral',
@@ -161,39 +138,33 @@ class CoachDecisionEngine
             'include_insights' => false
         ];
 
-        // High priority emotions - immediate empathetic response
         if (in_array($emotion, ['guilt', 'stress', 'sad', 'angry'])) {
             $decision['response_type'] = 'emotional_support';
             $decision['priority_level'] = 'high';
             $decision['empathy_level'] = 'high';
         }
 
-        // Celebration emotions
         if ($emotion === 'proud') {
             $decision['response_type'] = 'celebration';
             $decision['follow_up_needed'] = true;
         }
 
-        // Guidance needed
         if (in_array($emotion, ['confused', 'frustrated'])) {
             $decision['response_type'] = 'guidance';
             $decision['follow_up_needed'] = true;
         }
 
-        // Energy-based responses
         if ($emotion === 'tired') {
             $decision['response_type'] = 'gentle_motivation';
             $decision['empathy_level'] = 'high';
         }
 
-        // Intent-specific decisions
         switch ($intent) {
             case 'meal_logging':
                 $decision['goal_check_needed'] = true;
                 $decision['habit_reminder'] = true;
                 $decision['include_insights'] = true;
                 
-                // Adjust based on meal analysis
                 if ($mealAnalysis && $mealAnalysis['consistency_score'] > 0.7) {
                     $decision['response_type'] = 'celebration';
                 } elseif ($mealAnalysis && $mealAnalysis['food_pattern'] === 'junk_food') {
@@ -229,7 +200,6 @@ class CoachDecisionEngine
                 break;
         }
 
-        // Check if user needs motivation based on memories
         if ($this->needsMotivation($memories)) {
             $decision['response_type'] = 'motivational';
             $decision['follow_up_needed'] = true;
@@ -241,9 +211,10 @@ class CoachDecisionEngine
     protected function needsMotivation(array $memories): bool
     {
         foreach ($memories as $memory) {
-            if (str_contains(strtolower($memory['content']), 'failed') || 
-                str_contains(strtolower($memory['content']), 'couldn\'t') ||
-                str_contains(strtolower($memory['content']), 'missed')) {
+            $content = is_array($memory) ? ($memory['content'] ?? '') : '';
+            if (str_contains(strtolower($content), 'failed') || 
+                str_contains(strtolower($content), 'couldn\'t') ||
+                str_contains(strtolower($content), 'missed')) {
                 return true;
             }
         }

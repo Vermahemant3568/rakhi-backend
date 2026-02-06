@@ -6,33 +6,22 @@ use App\Services\Memory\MemorySelectorService;
 
 class NutritionInsightService
 {
-    protected $memorySelectorService;
-    protected $mealPatternAnalyzer;
-
-    public function __construct()
-    {
-        $this->memorySelectorService = new MemorySelectorService();
-        $this->mealPatternAnalyzer = new MealPatternAnalyzer();
-    }
+    public function __construct(
+        private MemorySelectorService $memorySelectorService,
+        private MealPatternAnalyzer $mealPatternAnalyzer
+    ) {}
 
     public function generateNutritionInsights(int $userId, string $currentMessage): array
     {
-        // Get meal-related memories
         $mealMemories = $this->memorySelectorService->getRelevantMemories($userId, $currentMessage, 10);
-        
-        // Filter for meal pattern memories
-        $mealPatternMemories = array_filter($mealMemories, function($memory) {
-            return $memory['type'] === 'meal_pattern';
-        });
+        $mealPatternMemories = array_filter($mealMemories, fn($memory) => ($memory['type'] ?? '') === 'meal_pattern');
 
-        $insights = [
+        return [
             'consistency_insights' => $this->analyzeConsistencyPatterns($mealPatternMemories),
             'food_pattern_insights' => $this->analyzeFoodPatterns($mealPatternMemories),
             'timing_insights' => $this->analyzeTimingPatterns($mealPatternMemories),
             'coaching_suggestions' => $this->generateCoachingSuggestions($mealPatternMemories)
         ];
-
-        return $insights;
     }
 
     protected function analyzeConsistencyPatterns(array $memories): array
@@ -136,7 +125,6 @@ class NutritionInsightService
             return $suggestions;
         }
 
-        // Analyze recent patterns for suggestions
         $recentMemories = array_slice($memories, 0, 5);
         $outsideFoodCount = 0;
         $totalRecent = count($recentMemories);
@@ -152,7 +140,6 @@ class NutritionInsightService
             $suggestions[] = "Recent mein outside food zyada hai — meal prep try kariye home food ke liye";
         }
 
-        // Add general suggestions based on patterns
         $suggestions[] = "Consistent meal timing maintain kariye — metabolism ke liye better hai";
         $suggestions[] = "Home cooked food prefer kariye — nutrition aur portion control better hota hai";
 

@@ -8,12 +8,9 @@ use Carbon\Carbon;
 
 class MealPatternAnalyzer
 {
-    protected $memoryManager;
-
-    public function __construct()
-    {
-        $this->memoryManager = new MemoryManager();
-    }
+    public function __construct(
+        private MemoryManager $memoryManager
+    ) {}
 
     public function analyzeMealPattern(int $userId, string $message, string $intent): array
     {
@@ -25,10 +22,7 @@ class MealPatternAnalyzer
             'insights' => []
         ];
 
-        // Get historical meal data
-        $mealHistory = $this->getMealHistory($userId, 7); // Last 7 days
-        
-        // Analyze consistency patterns
+        $mealHistory = $this->getMealHistory($userId, 7);
         $analysis['consistency_score'] = $this->calculateConsistency($mealHistory, $analysis);
         $analysis['insights'] = $this->generateInsights($mealHistory, $analysis);
 
@@ -66,7 +60,6 @@ class MealPatternAnalyzer
             return 'snack';
         }
         
-        // Time-based detection
         $hour = now()->hour;
         if ($hour >= 6 && $hour <= 10) return 'breakfast';
         if ($hour >= 11 && $hour <= 15) return 'lunch';
@@ -80,22 +73,18 @@ class MealPatternAnalyzer
     {
         $message = strtolower($message);
         
-        // Home food patterns
         if (preg_match('/\b(ghar|home|mummy|mom|homemade|dal|roti|chawal|sabzi)\b/', $message)) {
             return 'home_cooked';
         }
         
-        // Outside food patterns
         if (preg_match('/\b(restaurant|hotel|office|canteen|order|delivery|zomato|swiggy)\b/', $message)) {
             return 'outside_food';
         }
         
-        // Healthy patterns
         if (preg_match('/\b(salad|fruits|juice|oats|healthy|diet)\b/', $message)) {
             return 'healthy_choice';
         }
         
-        // Junk food patterns
         if (preg_match('/\b(pizza|burger|chips|fried|junk|fast food)\b/', $message)) {
             return 'junk_food';
         }
@@ -146,14 +135,8 @@ class MealPatternAnalyzer
         if (empty($history)) return 0.0;
         
         $consistencyFactors = [];
-        
-        // Check meal timing consistency
-        $timingConsistency = $this->checkTimingConsistency($history, $currentAnalysis['meal_type']);
-        $consistencyFactors[] = $timingConsistency;
-        
-        // Check food pattern consistency
-        $patternConsistency = $this->checkPatternConsistency($history, $currentAnalysis['food_pattern']);
-        $consistencyFactors[] = $patternConsistency;
+        $consistencyFactors[] = $this->checkTimingConsistency($history, $currentAnalysis['meal_type']);
+        $consistencyFactors[] = $this->checkPatternConsistency($history, $currentAnalysis['food_pattern']);
         
         return array_sum($consistencyFactors) / count($consistencyFactors);
     }
@@ -201,22 +184,18 @@ class MealPatternAnalyzer
     {
         $insights = [];
         
-        // Home food consistency insight
         if ($analysis['food_pattern'] === 'home_cooked' && $analysis['consistency_score'] > 0.7) {
             $insights[] = "Main notice kar rahi hoon aap {$analysis['meal_type']} mostly ghar ka lete ho — great consistency 👏";
         }
         
-        // Healthy pattern insight
         if ($analysis['food_pattern'] === 'healthy_choice') {
             $insights[] = "Healthy choices kar rahe hain aap — ye pattern maintain karna important hai";
         }
         
-        // Outside food pattern
         if ($analysis['food_pattern'] === 'outside_food' && $analysis['consistency_score'] > 0.6) {
             $insights[] = "Outside food ka pattern zyada ho raha hai — balance ke liye home food try karein";
         }
         
-        // Timing consistency
         if ($analysis['consistency_score'] > 0.8) {
             $insights[] = "Meal timing bahut consistent hai aap ka — excellent discipline!";
         }

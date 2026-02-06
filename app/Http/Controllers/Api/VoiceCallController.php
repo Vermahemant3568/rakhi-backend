@@ -6,75 +6,96 @@ use App\Http\Controllers\Controller;
 use App\Models\VoiceSession;
 use App\Services\Voice\VoiceConversationService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 class VoiceCallController extends Controller
 {
+    public function __construct(
+        private VoiceConversationService $voiceService
+    ) {}
+
     public function start(Request $request)
     {
-        $user = $request->user();
-        $user->load('profile'); // Load user profile
-        
-        $session = VoiceSession::create([
-            'user_id' => $user->id,
-            'status' => 'started',
-            'started_at' => now()
-        ]);
+        try {
+            $user = $request->user()->load('profile', 'goals');
+            
+            $session = VoiceSession::create([
+                'user_id' => $user->id,
+                'status' => 'started',
+                'started_at' => now()
+            ]);
 
-        return response()->json([
-            'success' => true,
-            'data' => [
-                'session_id' => $session->id
-            ]
-        ]);
+            return response()->json([
+                'success' => true,
+                'data' => ['session_id' => $session->id]
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Voice session start error', ['error' => $e->getMessage(), 'user_id' => $request->user()->id]);
+            return response()->json([
+                'success' => false,
+                'error' => 'Unable to start voice session'
+            ], 500);
+        }
     }
 
-    public function end(Request $request, $id)
+    public function end(Request $request, int $id)
     {
-        $session = VoiceSession::where('id', $id)
-            ->where('user_id', $request->user()->id)
-            ->firstOrFail();
+        try {
+            $session = VoiceSession::where('id', $id)
+                ->where('user_id', $request->user()->id)
+                ->firstOrFail();
 
-        $session->update([
-            'status' => 'ended',
-            'ended_at' => now()
-        ]);
+            $session->update([
+                'status' => 'ended',
+                'ended_at' => now()
+            ]);
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Call ended'
-        ]);
+            return response()->json([
+                'success' => true,
+                'message' => 'Call ended successfully'
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Voice session end error', ['error' => $e->getMessage(), 'session_id' => $id]);
+            return response()->json([
+                'success' => false,
+                'error' => 'Unable to end voice session'
+            ], 500);
+        }
     }
 
     public function processAudio(Request $request)
     {
-        $request->validate([
+        $validated = $request->validate([
             'audio_chunk' => 'required|string',
-            'session_id' => 'required|integer'
+            'session_id' => 'required|integer|exists:voice_sessions,id'
         ]);
 
-        $user = $request->user();
-        $user->load('profile'); // Load user profile
-        
-        $session = VoiceSession::where('id', $request->session_id)
-            ->where('user_id', $user->id)
-            ->where('status', 'started')
-            ->firstOrFail();
-
         try {
-            $voiceService = new VoiceConversationService($user, $session);
-            $audioResponse = $voiceService->handleAudioChunk($request->audio_chunk);
+            $user = $request->user()->load('profile', 'goals');
+            
+            $session = VoiceSession::where('id', $validated['session_id'])
+                ->where('user_id', $user->id)
+                ->where('status', 'started')
+                ->firstOrFail();
+
+            $this->voiceService->initialize($user, $session);
+            $audioResponse = $this->voiceService->handleAudioChunk($validated['audio_chunk']);
             
             return response()->json([
                 'success' => true,
                 'data' => [
                     'audio_response' => $audioResponse,
-                    'should_terminate' => $voiceService->shouldTerminateCall()
+                    'should_terminate' => $this->voiceService->shouldTerminateCall()
                 ]
             ]);
         } catch (\Exception $e) {
+            Log::error('Voice audio processing error', [
+                'error' => $e->getMessage(),
+                'session_id' => $validated['session_id'] ?? null
+            ]);
             return response()->json([
                 'success' => false,
-                'error' => $e->getMessage()
+                'error' => 'Unable to process audio'
             ], 500);
         }
     }
