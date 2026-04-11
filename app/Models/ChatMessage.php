@@ -8,6 +8,10 @@ class ChatMessage extends Model
 {
     public $timestamps = false;
 
+    // DB has created_at set by useCurrent(), no updated_at
+    const CREATED_AT = 'created_at';
+    const UPDATED_AT = null;
+
     protected $fillable = [
         'session_id', 'user_id', 'role', 'message',
         'message_type', 'file_url', 'tokens_used',

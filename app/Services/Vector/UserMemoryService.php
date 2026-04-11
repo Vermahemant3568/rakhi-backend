@@ -18,9 +18,16 @@ class UserMemoryService
         string $role,
         array $metadata = []
     ): void {
+        // Skip empty messages
+        if (empty(trim($message))) return;
+
         $vector    = $this->embedder->embed($message);
+
+        // If embedding returned empty (quota hit), skip silently
+        if (empty($vector)) return;
+
         $namespace = "user-{$user->id}";
-        $id        = "msg-" . $user->id . "-" . time();
+        $id        = "msg-" . $user->id . "-" . time() . "-" . rand(100, 999);
 
         $this->pinecone->upsert(
             namespace: $namespace,
@@ -37,7 +44,11 @@ class UserMemoryService
 
     public function recall(User $user, string $query, int $limit = 5): array
     {
-        $vector    = $this->embedder->embed($query);
+        $vector = $this->embedder->embed($query);
+
+        // If embedding failed, return empty gracefully
+        if (empty($vector)) return [];
+
         $namespace = "user-{$user->id}";
 
         $matches = $this->pinecone->query(
@@ -57,7 +68,11 @@ class UserMemoryService
         string $query,
         int $limit = 5
     ): array {
-        $vector  = $this->embedder->embed($query);
+        $vector = $this->embedder->embed($query);
+
+        // If embedding failed, return empty gracefully
+        if (empty($vector)) return [];
+
         $matches = $this->pinecone->query(
             namespace: $coachNamespace,
             vector: $vector,

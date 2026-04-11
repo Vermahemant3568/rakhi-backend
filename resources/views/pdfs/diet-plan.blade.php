@@ -4,201 +4,327 @@
 <meta charset="utf-8">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
+
   body {
     font-family: 'DejaVu Sans', sans-serif;
-    background: #fff;
+    background: #f7f4ff;
     color: #1a1a1a;
-    padding: 40px;
-  }
-  .header {
-    background: linear-gradient(135deg, #7C3AED, #EC4899);
-    color: white;
-    padding: 30px;
-    border-radius: 12px;
-    margin-bottom: 30px;
-  }
-  .header h1 { font-size: 28px; margin-bottom: 6px; }
-  .header p  { font-size: 14px; opacity: 0.85; }
-  .user-info {
-    background: #f8f4ff;
-    border-left: 4px solid #7C3AED;
-    padding: 16px 20px;
-    border-radius: 8px;
-    margin-bottom: 24px;
-    display: flex;
-    gap: 30px;
-  }
-  .user-info span { font-size: 13px; color: #555; }
-  .user-info strong { color: #1a1a1a; }
-  .section {
-    margin-bottom: 28px;
-  }
-  .section h2 {
-    font-size: 16px;
-    color: #7C3AED;
-    border-bottom: 2px solid #f0e6ff;
-    padding-bottom: 8px;
-    margin-bottom: 16px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-  }
-  .meal-card {
-    background: #fafafa;
-    border: 1px solid #eee;
-    border-radius: 8px;
-    padding: 16px;
-    margin-bottom: 12px;
-  }
-  .meal-card h3 {
-    font-size: 14px;
-    color: #333;
-    margin-bottom: 8px;
-  }
-  .meal-card p {
     font-size: 13px;
-    color: #666;
-    line-height: 1.6;
+    line-height: 1.75;
   }
-  .nutrition-grid {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 10px;
-    margin-bottom: 20px;
+
+  /* ── Header ── */
+  .header {
+    background-color: #6d28d9;
+    color: #ffffff;
+    padding: 32px 32px 28px;
   }
-  .nutrient-box {
-    background: #f8f4ff;
-    border-radius: 8px;
-    padding: 12px;
-    text-align: center;
+  .header-top {
+    font-size: 11px;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    opacity: 0.75;
+    margin-bottom: 10px;
   }
-  .nutrient-box .value {
-    font-size: 18px;
+  .header-greeting {
+    font-size: 24px;
     font-weight: bold;
-    color: #7C3AED;
+    margin-bottom: 4px;
+    letter-spacing: 0.2px;
   }
-  .nutrient-box .label {
+  .header-sub {
+    font-size: 13px;
+    opacity: 0.85;
+    margin-bottom: 18px;
+  }
+  .header-meta-table { width: 100%; border-collapse: collapse; }
+  .header-meta-table td {
+    font-size: 11px;
+    color: rgba(255,255,255,0.75);
+    padding: 0 16px 0 0;
+    white-space: nowrap;
+  }
+  .header-meta-table td strong {
+    display: block;
+    font-size: 13px;
+    color: #ffffff;
+    font-weight: bold;
+  }
+
+  /* ── Page wrapper ── */
+  .page { padding: 26px 28px 40px; }
+
+  /* ── Section ── */
+  .section { margin-bottom: 28px; }
+
+  .section-title {
+    font-size: 15px;
+    font-weight: bold;
+    color: #3b0764;
+    margin-bottom: 14px;
+  }
+
+  /* ── Goals badges ── */
+  .badge {
+    display: inline-block;
+    background: #ede9fe;
+    color: #5b21b6;
+    padding: 5px 14px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: bold;
+    margin: 3px 5px 3px 0;
+    border: 1px solid #ddd6fe;
+  }
+
+  /* ── Nutrition cards ── */
+  .nutrition-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 8px;
+  }
+  .nutrient-card {
+    background: #ffffff;
+    border-radius: 12px;
+    padding: 16px 10px 14px;
+    text-align: center;
+    width: 25%;
+    border: 1px solid #ede9fe;
+  }
+  .nutrient-card .n-icon {
+    font-size: 22px;
+    margin-bottom: 6px;
+  }
+  .nutrient-card .n-value {
+    font-size: 20px;
+    font-weight: bold;
+    color: #6d28d9;
+    line-height: 1.2;
+  }
+  .nutrient-card .n-label {
     font-size: 11px;
     color: #888;
     margin-top: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
   }
-  .tip-box {
-    background: #fff8e1;
-    border-left: 4px solid #F59E0B;
-    padding: 14px 18px;
-    border-radius: 8px;
+
+  /* ── Meal cards ── */
+  .meal-card {
+    background: #ffffff;
+    border-radius: 12px;
+    border: 1px solid #ede9fe;
+    padding: 0;
+    margin-bottom: 12px;
+    overflow: hidden;
+  }
+  .meal-card-header {
+    background: #f5f0ff;
+    padding: 10px 16px;
+    border-bottom: 1px solid #ede9fe;
+  }
+  .meal-time-badge {
+    display: inline-block;
+    background: #6d28d9;
+    color: #fff;
+    font-size: 10px;
+    font-weight: bold;
+    padding: 3px 10px;
+    border-radius: 20px;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    margin-bottom: 4px;
+  }
+  .meal-name {
+    font-size: 14px;
+    font-weight: bold;
+    color: #2d2d2d;
+  }
+  .meal-card-body {
+    padding: 12px 16px;
+  }
+  .meal-desc {
+    font-size: 13px;
+    color: #555;
+    line-height: 1.75;
+  }
+  .meal-kcal-row {
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px dashed #ede9fe;
+  }
+  .meal-kcal {
+    display: inline-block;
+    background: #faf5ff;
+    color: #6d28d9;
+    font-size: 12px;
+    font-weight: bold;
+    padding: 3px 12px;
+    border-radius: 20px;
+    border: 1px solid #ddd6fe;
+  }
+
+  /* ── Tip / Rakhi says ── */
+  .tip-card {
+    background: #ffffff;
+    border-radius: 12px;
+    border: 1px solid #fde68a;
+    padding: 14px 16px;
     margin-bottom: 10px;
   }
-  .tip-box p { font-size: 13px; color: #555; line-height: 1.6; }
+  .tip-label {
+    font-size: 11px;
+    font-weight: bold;
+    color: #b45309;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    margin-bottom: 5px;
+  }
+  .tip-text {
+    font-size: 13px;
+    color: #4b4b4b;
+    line-height: 1.75;
+  }
+
+  /* ── Divider ── */
+  .divider {
+    border: none;
+    border-top: 1px solid #e9e3ff;
+    margin: 24px 0;
+  }
+
+  /* ── Footer ── */
   .footer {
-    margin-top: 40px;
+    margin-top: 36px;
     text-align: center;
     color: #aaa;
     font-size: 11px;
-    border-top: 1px solid #eee;
+    border-top: 1px solid #e9e3ff;
     padding-top: 16px;
+    line-height: 1.9;
   }
-  .badge {
-    display: inline-block;
-    background: #f0e6ff;
-    color: #7C3AED;
-    padding: 4px 10px;
-    border-radius: 20px;
+  .footer-brand {
     font-size: 12px;
-    margin: 3px;
+    font-weight: bold;
+    color: #6d28d9;
+    margin-top: 6px;
   }
 </style>
 </head>
 <body>
 
-  <!-- Header -->
+  <!-- ── Header ── -->
   <div class="header">
-    <h1>🌸 Personalized Diet Plan</h1>
-    <p>Prepared by Rakhi AI Health Coach &bull; {{ $date }}</p>
+    <div class="header-top">&#127807; Rakhi AI &nbsp;&bull;&nbsp; Health Coach</div>
+    <div class="header-greeting">Hi {{ $user->first_name }}! &#128075;</div>
+    <div class="header-sub">Here's your personalized diet plan, crafted just for you.</div>
+    <table class="header-meta-table">
+      <tr>
+        <td><strong>{{ $user->age() }} yrs</strong>Age</td>
+        <td><strong>{{ $user->weight }} kg</strong>Weight</td>
+        <td><strong>{{ $user->height }} cm</strong>Height</td>
+        <td><strong>{{ ucfirst($user->diet_preference ?? 'Not specified') }}</strong>Diet Type</td>
+        <td><strong>{{ $date }}</strong>Generated</td>
+      </tr>
+    </table>
   </div>
 
-  <!-- User Info -->
-  <div class="user-info">
-    <span><strong>Name:</strong> {{ $user->first_name }} {{ $user->last_name }}</span>
-    <span><strong>Age:</strong> {{ $user->age() }} years</span>
-    <span><strong>Weight:</strong> {{ $user->weight }} kg</span>
-    <span><strong>Height:</strong> {{ $user->height }} cm</span>
-    <span><strong>Diet:</strong> {{ ucfirst($user->diet_preference ?? 'Not specified') }}</span>
-  </div>
+  <div class="page">
 
-  <!-- Goals -->
-  <div class="section">
-    <h2>Your Health Goals</h2>
-    @foreach($user->goals as $goal)
-      <span class="badge">{{ $goal->name }}</span>
-    @endforeach
-  </div>
-
-  <!-- Daily Nutrition Target -->
-  @if(isset($plan['daily_targets']))
-  <div class="section">
-    <h2>Daily Nutrition Targets</h2>
-    <div class="nutrition-grid">
-      <div class="nutrient-box">
-        <div class="value">{{ $plan['daily_targets']['calories'] ?? '—' }}</div>
-        <div class="label">Calories</div>
-      </div>
-      <div class="nutrient-box">
-        <div class="value">{{ $plan['daily_targets']['protein'] ?? '—' }}g</div>
-        <div class="label">Protein</div>
-      </div>
-      <div class="nutrient-box">
-        <div class="value">{{ $plan['daily_targets']['carbs'] ?? '—' }}g</div>
-        <div class="label">Carbs</div>
-      </div>
-      <div class="nutrient-box">
-        <div class="value">{{ $plan['daily_targets']['fat'] ?? '—' }}g</div>
-        <div class="label">Fat</div>
-      </div>
+    <!-- ── Goals ── -->
+    <div class="section">
+      <div class="section-title">&#127919; Your Health Goals</div>
+      @foreach($user->goals as $goal)
+        <span class="badge">{{ $goal->name }}</span>
+      @endforeach
     </div>
-  </div>
-  @endif
 
-  <!-- Meal Plan -->
-  @if(isset($plan['meals']))
-  <div class="section">
-    <h2>Your Daily Meal Plan</h2>
-    @foreach($plan['meals'] as $meal)
-    <div class="meal-card">
-      <h3>{{ ucfirst($meal['time'] ?? '') }} &mdash; {{ $meal['name'] ?? '' }}</h3>
-      <p>{{ $meal['description'] ?? '' }}</p>
-      @if(isset($meal['calories']))
-        <p style="margin-top:6px; color:#7C3AED; font-size:12px;">
-          ~{{ $meal['calories'] }} kcal
-        </p>
-      @endif
+    <hr class="divider">
+
+    <!-- ── Nutrition Targets ── -->
+    @if(isset($plan['daily_targets']))
+    <div class="section">
+      <div class="section-title">&#9889; Daily Nutrition Targets</div>
+      <table class="nutrition-table">
+        <tr>
+          <td class="nutrient-card">
+            <div class="n-icon">&#128293;</div>
+            <div class="n-value">{{ $plan['daily_targets']['calories'] ?? '—' }}</div>
+            <div class="n-label">Calories</div>
+          </td>
+          <td class="nutrient-card">
+            <div class="n-icon">&#128167;</div>
+            <div class="n-value">{{ $plan['daily_targets']['protein'] ?? '—' }}g</div>
+            <div class="n-label">Protein</div>
+          </td>
+          <td class="nutrient-card">
+            <div class="n-icon">&#127807;</div>
+            <div class="n-value">{{ $plan['daily_targets']['carbs'] ?? '—' }}g</div>
+            <div class="n-label">Carbs</div>
+          </td>
+          <td class="nutrient-card">
+            <div class="n-icon">&#129370;</div>
+            <div class="n-value">{{ $plan['daily_targets']['fat'] ?? '—' }}g</div>
+            <div class="n-label">Fat</div>
+          </td>
+        </tr>
+      </table>
     </div>
-    @endforeach
-  </div>
-  @endif
 
-  <!-- Tips -->
-  @if(isset($plan['tips']))
-  <div class="section">
-    <h2>Rakhi's Tips For You</h2>
-    @foreach($plan['tips'] as $tip)
-    <div class="tip-box">
-      <p>💡 {{ $tip }}</p>
+    <hr class="divider">
+    @endif
+
+    <!-- ── Meal Plan ── -->
+    @if(isset($plan['meals']))
+    <div class="section">
+      <div class="section-title">&#127859; Your Daily Meal Plan</div>
+      @foreach($plan['meals'] as $meal)
+      <div class="meal-card">
+        <div class="meal-card-header">
+          <div class="meal-time-badge">{{ ucfirst($meal['time'] ?? 'Meal') }}</div>
+          @if(!empty($meal['name']))
+            <div class="meal-name">{{ $meal['name'] }}</div>
+          @endif
+        </div>
+        <div class="meal-card-body">
+          @if(!empty($meal['description']))
+            <div class="meal-desc">{{ $meal['description'] }}</div>
+          @endif
+          @if(isset($meal['calories']))
+          <div class="meal-kcal-row">
+            <span class="meal-kcal">&#128293; ~{{ $meal['calories'] }} kcal</span>
+          </div>
+          @endif
+        </div>
+      </div>
+      @endforeach
     </div>
-    @endforeach
-  </div>
-  @endif
 
-  <!-- Footer -->
-  <div class="footer">
-    <p>
-      This plan is prepared by Rakhi AI Health Coach for personal
-      wellness guidance only. It is not a substitute for
-      professional medical advice.
-    </p>
-    <p style="margin-top:6px;">
-      🌸 Rakhi AI &bull; rakhi.ai &bull; {{ $date }}
-    </p>
-  </div>
+    <hr class="divider">
+    @endif
 
+    <!-- ── Tips ── -->
+    @if(isset($plan['tips']))
+    <div class="section">
+      <div class="section-title">&#128172; Rakhi's Coaching Tips</div>
+      @foreach($plan['tips'] as $tip)
+      <div class="tip-card">
+        <div class="tip-label">&#128161; Rakhi says:</div>
+        <div class="tip-text">{{ $tip }}</div>
+      </div>
+      @endforeach
+    </div>
+    @endif
+
+    <!-- ── Footer ── -->
+    <div class="footer">
+      <p>
+        This plan is prepared by Rakhi AI Health Coach for personal wellness guidance only.<br>
+        It is not a substitute for professional medical advice.
+      </p>
+      <div class="footer-brand">&#127807; Rakhi AI &nbsp;&bull;&nbsp; rakhi.ai &nbsp;&bull;&nbsp; {{ $date }}</div>
+    </div>
+
+  </div>
 </body>
 </html>

@@ -68,10 +68,11 @@ Route::middleware(['user.auth'])->group(function () {
 
     // Chat
     Route::prefix('chat')->group(function () {
-        Route::post('/session/start',  [ChatController::class, 'startSession']);
-        Route::post('/send',           [ChatController::class, 'sendMessage']);
-        Route::get('/history/{sessionId}', [ChatController::class, 'history']);
-        Route::get('/sessions',        [ChatController::class, 'sessions']);
+        Route::post('/session/start',         [ChatController::class, 'startSession']);
+        Route::post('/session/initiate-call', [ChatController::class, 'initiateConsultationCall']);
+        Route::post('/send',                  [ChatController::class, 'sendMessage']);
+        Route::get('/history/{sessionId}',    [ChatController::class, 'history']);
+        Route::get('/sessions',               [ChatController::class, 'sessions']);
     });
 
     // Voice

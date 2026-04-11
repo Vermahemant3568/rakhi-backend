@@ -19,9 +19,15 @@ class ChatGPTService
 
     private function getConfig(): LlmConfig
     {
-        return LlmConfig::where('provider', 'chatgpt')
-                        ->where('is_active', 1)
-                        ->first();
+        $config = LlmConfig::where('provider', 'chatgpt')
+                           ->where('is_active', 1)
+                           ->first();
+
+        if (!$config) {
+            throw new \Exception('ChatGPT LLM config not found. Please activate it from admin panel.');
+        }
+
+        return $config;
     }
 
     public function chat(string $prompt, array $history = []): string

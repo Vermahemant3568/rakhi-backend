@@ -29,6 +29,13 @@ class GenerateConsultationReport implements ShouldQueue
     {
         $user = $this->user->load('goals', 'coaches');
 
+        // Pull conversation context from the welcome consultation
+        $conversationContext = ChatMessage::where('session_id', $this->sessionId)
+            ->orderBy('id')
+            ->get()
+            ->map(fn($m) => ucfirst($m->role) . ': ' . $m->message)
+            ->join("\n");
+
         // Gather user data
         $recentCheckins = DailyCheckin::where('user_id', $user->id)
             ->latest()
@@ -61,18 +68,22 @@ class GenerateConsultationReport implements ShouldQueue
             Weight: {$user->weight} kg
             Activity: {$user->activity_level}
 
+            CONVERSATION CONTEXT (Welcome Consultation):
+            {$conversationContext}
+
             Recent checkins (last 7 days):
             {$checkinsText}
 
             Recent meals:
             {$mealsText}
 
+            Based on the conversation and data above, create a comprehensive report.
             Return ONLY valid JSON:
             {
               'findings': [
                 {
                   'area': 'area name',
-                  'observation': 'what you observed'
+                  'observation': 'what you observed from conversation and data'
                 }
               ],
               'recommendations': [
@@ -85,12 +96,30 @@ class GenerateConsultationReport implements ShouldQueue
               ]
             }
 
-            Be empathetic, specific, and practical.
+            Be empathetic, specific, and practical. Reference insights from the conversation.
             Return ONLY JSON. No extra text.";
 
         $response = $llm->chat($prompt);
         $clean    = preg_replace('/```json|```/', '', $response);
-        $report   = json_decode(trim($clean), true) ?? [];
+        $clean    = trim($clean);
+
+        // Strip any leading/trailing non-JSON characters
+        $jsonStart = strpos($clean, '{');
+        $jsonEnd   = strrpos($clean, '}');
+        if ($jsonStart !== false && $jsonEnd !== false) {
+            $clean = substr($clean, $jsonStart, $jsonEnd - $jsonStart + 1);
+        }
+
+        $report = json_decode($clean, true);
+
+        if (!$report) {
+            // Fallback structure so PDF still generates
+            $report = [
+                'findings'        => [['area' => 'General Health', 'observation' => 'Based on your consultation, a personalized plan has been created for you.']],
+                'recommendations' => ['Follow your personalized diet and fitness plan consistently.', 'Check in daily to track your progress.'],
+                'next_steps'      => ['Start with your diet plan from tomorrow.', 'Complete your first workout this week.'],
+            ];
+        }
 
         $fileUrl = $pdf->generateConsultationReport($user, $report);
 

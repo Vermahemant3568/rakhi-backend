@@ -3,6 +3,7 @@
 namespace App\Services\AI;
 
 use App\Models\LlmConfig;
+use Illuminate\Support\Facades\Log;
 
 class EmbeddingService
 {
@@ -13,15 +14,24 @@ class EmbeddingService
 
     public function embed(string $text): array
     {
-        $config = LlmConfig::where('is_active', 1)->first();
+        if (empty(trim($text))) return [];
 
-        if (!$config) {
-            return $this->gemini->embed($text);
+        try {
+            $config = LlmConfig::where('is_active', 1)->first();
+
+            if (!$config) {
+                return $this->gemini->embed($text);
+            }
+
+            return match($config->provider) {
+                'chatgpt' => $this->chatgpt->embed($text),
+                default   => $this->gemini->embed($text),
+            };
+        } catch (\Exception $e) {
+            // Embedding is non-critical — quota errors, network issues etc.
+            // Return empty so callers skip vector operations gracefully
+            Log::warning('EmbeddingService failed (non-fatal): ' . $e->getMessage());
+            return [];
         }
-
-        return match($config->provider) {
-            'chatgpt' => $this->chatgpt->embed($text),
-            default   => $this->gemini->embed($text),
-        };
     }
 }

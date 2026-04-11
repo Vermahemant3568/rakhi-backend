@@ -19,49 +19,76 @@ class GeminiService
 
     private function getConfig(): LlmConfig
     {
-        return LlmConfig::where('provider', 'gemini')
-                        ->where('is_active', 1)
-                        ->first();
+        $config = LlmConfig::where('provider', 'gemini')
+                           ->where('is_active', 1)
+                           ->first();
+
+        if (!$config) {
+            throw new \Exception('Gemini LLM config not found. Please activate it from admin panel.');
+        }
+
+        return $config;
     }
 
     public function chat(string $prompt, array $history = []): string
     {
         $config = $this->getConfig();
         $apiKey = $this->decryptKey($config->api_key);
-        $model  = $config->model_name ?? 'gemini-2.0-flash';
+        $model  = $config->model_name ?? 'gemini-2.0-flash-lite';
 
         $contents = [];
-
         foreach ($history as $msg) {
             $contents[] = [
                 'role'  => $msg['role'] === 'rakhi' ? 'model' : 'user',
                 'parts' => [['text' => $msg['message']]]
             ];
         }
-
         $contents[] = [
             'role'  => 'user',
             'parts' => [['text' => $prompt]]
         ];
 
-        $response = Http::timeout(30)->post(
-            "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$apiKey}",
-            [
-                'contents'         => $contents,
-                'generationConfig' => [
-                    'temperature'     => (float) $config->temperature,
-                    'topP'            => (float) $config->top_p,
-                    'maxOutputTokens' => $config->max_tokens,
-                ],
-            ]
-        );
+        $payload = [
+            'contents'         => $contents,
+            'generationConfig' => [
+                'temperature'     => (float) ($config->temperature ?? 0.7),
+                'topP'            => (float) ($config->top_p ?? 0.9),
+                'maxOutputTokens' => $config->max_tokens ?? 1024,
+            ],
+        ];
 
-        if ($response->failed()) {
+        // Retry up to 3 times with backoff for 429/503
+        $attempts = 3;
+        $delay    = 5; // seconds
+
+        for ($i = 0; $i < $attempts; $i++) {
+            $response = Http::timeout(30)->post(
+                "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$apiKey}",
+                $payload
+            );
+
+            if ($response->successful()) {
+                $text = $response->json('candidates.0.content.parts.0.text') ?? '';
+                if (!empty($text)) {
+                    return $text;
+                }
+            }
+
+            $status = $response->status();
+
+            // 429 = quota/rate limit, 503 = overloaded — retry after delay
+            if (in_array($status, [429, 503]) && $i < $attempts - 1) {
+                Log::warning("Gemini {$status} on attempt " . ($i + 1) . ", retrying in {$delay}s...");
+                sleep($delay);
+                $delay *= 2; // exponential backoff
+                continue;
+            }
+
             Log::error('Gemini API failed: ' . $response->body());
-            throw new \Exception('Gemini API error');
+            throw new \Exception('Gemini API error: HTTP ' . $status);
         }
 
-        return $response->json('candidates.0.content.parts.0.text') ?? '';
+        throw new \Exception('Gemini API error: all retries exhausted');
     }
 
     public function analyzeImage(
@@ -69,7 +96,7 @@ class GeminiService
         string $mimeType,
         string $prompt
     ): string {
-        $config = $this->getConfig();
+        $config = $this->getConfig(); // throws if not configured
         $apiKey = $this->decryptKey($config->api_key);
 
         $response = Http::timeout(30)->post(
@@ -94,7 +121,7 @@ class GeminiService
 
     public function embed(string $text): array
     {
-        $config = $this->getConfig();
+        $config = $this->getConfig(); // throws if not configured
         $apiKey = $this->decryptKey($config->api_key);
 
         $response = Http::post(

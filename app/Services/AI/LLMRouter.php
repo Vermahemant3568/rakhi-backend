@@ -29,8 +29,18 @@ class LLMRouter
                 default   => $this->gemini->chat($prompt, $history),
             };
         } catch (\Exception $e) {
-            Log::error('LLM Error: ' . $e->getMessage());
-            return $this->fallbackResponse();
+            Log::error('LLM primary failed (' . $config->provider . '): ' . $e->getMessage());
+
+            // Try the other provider as fallback before giving up
+            try {
+                if ($config->provider === 'gemini') {
+                    return $this->chatgpt->chat($prompt, $history);
+                }
+                return $this->gemini->chat($prompt, $history);
+            } catch (\Exception $fallbackEx) {
+                Log::error('LLM fallback also failed: ' . $fallbackEx->getMessage());
+                return $this->fallbackResponse();
+            }
         }
     }
 

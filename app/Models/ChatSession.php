@@ -8,6 +8,11 @@ class ChatSession extends Model
 {
     public $timestamps = false;
 
+    // The DB uses started_at (not created_at/updated_at)
+    // Tell Eloquent to use started_at for ordering via ->latest()
+    const CREATED_AT = 'started_at';
+    const UPDATED_AT = null;
+
     protected $fillable = [
         'user_id', 'coach_id', 'session_type',
         'is_first_consultation', 'status', 'started_at', 'ended_at',

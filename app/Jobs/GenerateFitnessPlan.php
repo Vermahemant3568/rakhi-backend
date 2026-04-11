@@ -61,10 +61,16 @@ class GenerateFitnessPlan implements ShouldQueue
 
             $response = $llm->chat($prompt);
             $clean    = preg_replace('/```json|```/', '', $response);
-            $planData = json_decode(trim($clean), true);
+            $clean    = trim($clean);
+            $jsonStart = strpos($clean, '{');
+            $jsonEnd   = strrpos($clean, '}');
+            if ($jsonStart !== false && $jsonEnd !== false) {
+                $clean = substr($clean, $jsonStart, $jsonEnd - $jsonStart + 1);
+            }
+            $planData = json_decode($clean, true);
 
             if (!$planData) {
-                throw new \Exception('Invalid fitness plan JSON');
+                throw new \Exception('Invalid fitness plan JSON: ' . substr($response, 0, 200));
             }
 
             $fileUrl = $pdf->generateFitnessPlan($user, $planData);

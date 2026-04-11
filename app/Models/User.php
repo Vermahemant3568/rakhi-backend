@@ -14,6 +14,7 @@ class User extends Authenticatable implements JWTSubject
         'stress_level', 'sleep_hours', 'diet_preference',
         'is_active', 'is_banned', 'ban_reason',
         'onboarding_step', 'onboarding_complete',
+        'first_consultation_complete',
         'notification_enabled', 'microphone_enabled',
         'camera_enabled', 'fcm_token', 'last_active_at',
     ];
@@ -21,14 +22,15 @@ class User extends Authenticatable implements JWTSubject
     protected $hidden = ['remember_token'];
 
     protected $casts = [
-        'date_of_birth'        => 'date',
-        'onboarding_complete'  => 'boolean',
-        'notification_enabled' => 'boolean',
-        'microphone_enabled'   => 'boolean',
-        'camera_enabled'       => 'boolean',
-        'is_active'            => 'boolean',
-        'is_banned'            => 'boolean',
-        'last_active_at'       => 'datetime',
+        'date_of_birth'               => 'date',
+        'onboarding_complete'         => 'boolean',
+        'first_consultation_complete' => 'boolean',
+        'notification_enabled'        => 'boolean',
+        'microphone_enabled'          => 'boolean',
+        'camera_enabled'              => 'boolean',
+        'is_active'                   => 'boolean',
+        'is_banned'                   => 'boolean',
+        'last_active_at'              => 'datetime',
     ];
 
     // JWT
