@@ -31,7 +31,6 @@ class LLMRouter
         } catch (\Exception $e) {
             Log::error('LLM primary failed (' . $config->provider . '): ' . $e->getMessage());
 
-            // Try the other provider as fallback before giving up
             try {
                 if ($config->provider === 'gemini') {
                     return $this->chatgpt->chat($prompt, $history);
@@ -54,7 +53,9 @@ class LLMRouter
 
     public function getActiveConfig(): LlmConfig
     {
-        $config = LlmConfig::where('is_active', 1)->first();
+        $config = cache()->remember('llm_active_config', 60, fn() =>
+            LlmConfig::where('is_active', 1)->first()
+        );
 
         if (!$config) {
             throw new \Exception('No active LLM configured. Please activate one from admin panel.');

@@ -3,6 +3,7 @@
 namespace App\Services\Vector;
 
 use App\Models\User;
+use App\Models\UserMemory;
 use App\Services\AI\EmbeddingService;
 
 class UserMemoryService
@@ -18,12 +19,9 @@ class UserMemoryService
         string $role,
         array $metadata = []
     ): void {
-        // Skip empty messages
         if (empty(trim($message))) return;
 
-        $vector    = $this->embedder->embed($message);
-
-        // If embedding returned empty (quota hit), skip silently
+        $vector = $this->embedder->embed($message);
         if (empty($vector)) return;
 
         $namespace = "user-{$user->id}";
@@ -45,22 +43,19 @@ class UserMemoryService
     public function recall(User $user, string $query, int $limit = 5): array
     {
         $vector = $this->embedder->embed($query);
-
-        // If embedding failed, return empty gracefully
         if (empty($vector)) return [];
 
-        $namespace = "user-{$user->id}";
-
         $matches = $this->pinecone->query(
-            namespace: $namespace,
+            namespace: "user-{$user->id}",
             vector: $vector,
             topK: $limit
         );
 
-        return array_map(
+        // Filter low-relevance matches (score < 0.75)
+        return array_values(array_map(
             fn($m) => $m['metadata']['message'] ?? '',
-            $matches
-        );
+            array_filter($matches, fn($m) => ($m['score'] ?? 0) >= 0.75)
+        ));
     }
 
     public function recallCoachKnowledge(
@@ -69,8 +64,6 @@ class UserMemoryService
         int $limit = 5
     ): array {
         $vector = $this->embedder->embed($query);
-
-        // If embedding failed, return empty gracefully
         if (empty($vector)) return [];
 
         $matches = $this->pinecone->query(
@@ -80,9 +73,31 @@ class UserMemoryService
         );
 
         return array_map(
-            fn($m) => $m['metadata']['title'] . ': ' .
-                      ($m['metadata']['message'] ?? ''),
+            fn($m) => $m['metadata']['title'] . ': ' . ($m['metadata']['message'] ?? ''),
             $matches
         );
+    }
+
+    /**
+     * Retrieve all structured memory facts for a user from DB.
+     * Returns a flat key => value array.
+     */
+    public function getStructuredMemory(User $user): array
+    {
+        return UserMemory::where('user_id', $user->id)
+            ->orderBy('updated_at', 'desc')
+            ->get()
+            ->pluck('value', 'key')
+            ->toArray();
+    }
+
+    /**
+     * Check if a specific memory key exists for the user.
+     */
+    public function hasMemory(User $user, string $key): bool
+    {
+        return UserMemory::where('user_id', $user->id)
+            ->where('key', $key)
+            ->exists();
     }
 }

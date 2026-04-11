@@ -9,6 +9,7 @@ use App\Services\AI\WelcomeConsultationService;
 use App\Services\Coach\CoachRouter;
 use App\Services\Safety\MedicalBoundaryChecker;
 use App\Services\Safety\SafetyLayer;
+use App\Services\NLP\LanguageDetector;
 use App\Services\Voice\STTService;
 use App\Services\Voice\TTSService;
 use App\Services\Voice\CallSessionManager;
@@ -26,6 +27,7 @@ class VoiceController extends Controller
         private MedicalBoundaryChecker $boundary,
         private CallSessionManager $callManager,
         private WelcomeConsultationService $welcomeService,
+        private LanguageDetector $languageDetector,
     ) {}
 
     public function startSession(Request $request)
@@ -93,13 +95,14 @@ class VoiceController extends Controller
             return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
         }
 
-        $langCode = $user->language?->stt_code ?? 'en-IN';
+        // Use session's detected language for STT (better transcription accuracy)
+        $sttLang = $this->toGoogleCode($session->detected_language ?? 'en');
 
         try {
             $transcribedText = $this->stt->transcribe(
                 audioBase64:  $request->audio,
                 mimeType:     $request->mime_type,
-                languageCode: $langCode
+                languageCode: $sttLang
             );
         } catch (\Exception $e) {
             Log::error('STT failed: ' . $e->getMessage());
@@ -124,7 +127,13 @@ class VoiceController extends Controller
             'message_type' => 'voice',
         ]);
 
-        $ttsLang = $user->language?->tts_code ?? 'en-IN';
+        // Detect language from transcribed text & persist to session
+        $detectedLang = $this->languageDetector->detect($transcribedText);
+        if ($detectedLang !== 'en') {
+            $session->update(['detected_language' => $detectedLang]);
+        }
+
+        $ttsLang = $this->toGoogleCode($session->fresh()->detected_language ?? 'en');
 
         $safetyResult = $this->safety->check($transcribedText);
         if (!$safetyResult['is_safe']) {
@@ -293,6 +302,22 @@ class VoiceController extends Controller
         }
     }
 
+    /**
+     * Map LanguageDetector codes → Google STT/TTS language codes
+     */
+    private function toGoogleCode(string $langCode): string
+    {
+        return match(true) {
+            $langCode === 'hi'                          => 'hi-IN',
+            $langCode === 'hi-roman'                    => 'hi-IN',
+            str_ends_with($langCode, '-request')        => 'hi-IN',
+            $langCode === 'ta'                          => 'ta-IN',
+            $langCode === 'te'                          => 'te-IN',
+            $langCode === 'mr'                          => 'mr-IN',
+            default                                     => 'en-IN',
+        };
+    }
+
     private function buildVoiceGreeting($user): string
     {
         $name = $user->first_name ?? 'there';
@@ -307,22 +332,8 @@ class VoiceController extends Controller
         return "{$greeting} {$name}! I'm Rakhi, your personal health coach. How are you feeling today?";
     }
 
-(string $slug): string
+    private function resolveCoachClass(string $slug): string
     {
-        return match($slug) {
-            'diabetes-coach'        => \App\Services\Coach\DiabetesCoach::class,
-            'diet-nutrition-coach'  => \App\Services\Coach\DietNutritionCoach::class,
-            'fitness-coach'         => \App\Services\Coach\FitnessCoach::class,
-            'pcos-thyroid-coach'    => \App\Services\Coach\PCOSThyroidCoach::class,
-            'mental-wellness-coach' => \App\Services\Coach\MentalWellnessCoach::class,
-            'sleep-coach'           => \App\Services\Coach\SleepCoach::class,
-            'weight-loss-coach'     => \App\Services\Coach\WeightLossCoach::class,
-            'pregnancy-coach'       => \App\Services\Coach\PregnancyCoach::class,
-            'postpartum-coach'      => \App\Services\Coach\PostpartumCoach::class,
-            'energy-coach'          => \App\Services\Coach\EnergyCoach::class,
-            'stress-coach'          => \App\Services\Coach\StressCoach::class,
-            'habit-coach'           => \App\Services\Coach\HabitCoach::class,
-            default                 => \App\Services\Coach\DietNutritionCoach::class,
-        };
+        return $this->coachRouter->resolveCoachClass($slug);
     }
 }

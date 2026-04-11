@@ -13,3 +13,8 @@ Schedule::command('rakhi:streak-check')
 Schedule::command('rakhi:subscription-check')
     ->dailyAt('00:10')
     ->timezone('Asia/Kolkata');
+
+// Proactive reminders — runs every 30 min, service handles time-window logic internally
+Schedule::command('rakhi:proactive-followup')
+    ->everyThirtyMinutes()
+    ->timezone('Asia/Kolkata');

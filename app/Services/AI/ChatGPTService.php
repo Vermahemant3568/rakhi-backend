@@ -38,7 +38,7 @@ class ChatGPTService
 
         $messages = [];
 
-        foreach ($history as $msg) {
+        foreach (array_slice($history, -6) as $msg) {
             $messages[] = [
                 'role'    => $msg['role'] === 'rakhi' ? 'assistant' : 'user',
                 'content' => $msg['message'],
@@ -53,12 +53,12 @@ class ChatGPTService
         $response = Http::withHeaders([
             'Authorization' => 'Bearer ' . $apiKey,
             'Content-Type'  => 'application/json',
-        ])->timeout(30)->post('https://api.openai.com/v1/chat/completions', [
+        ])->timeout(12)->post('https://api.openai.com/v1/chat/completions', [
             'model'       => $model,
             'messages'    => $messages,
-            'max_tokens'  => $config->max_tokens,
-            'temperature' => (float) $config->temperature,
-            'top_p'       => (float) $config->top_p,
+            'max_tokens'  => $config->max_tokens ?? 220,
+            'temperature' => (float) ($config->temperature ?? 0.65),
+            'top_p'       => (float) ($config->top_p ?? 0.85),
         ]);
 
         if ($response->failed()) {

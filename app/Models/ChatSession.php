@@ -15,7 +15,7 @@ class ChatSession extends Model
 
     protected $fillable = [
         'user_id', 'coach_id', 'session_type',
-        'is_first_consultation', 'status', 'started_at', 'ended_at',
+        'is_first_consultation', 'status', 'detected_language', 'started_at', 'ended_at',
     ];
 
     protected $casts = [

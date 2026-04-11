@@ -30,6 +30,12 @@ class GenerateFitnessPlan implements ShouldQueue
             $user  = $this->user->load('goals');
             $goals = $user->goals->pluck('name')->join(', ');
 
+            $conversationContext = ChatMessage::where('session_id', $this->sessionId)
+                ->orderBy('id')
+                ->get()
+                ->map(fn($m) => ucfirst($m->role) . ': ' . $m->message)
+                ->join("\n");
+
             $prompt = "You are Rakhi, an expert fitness coach.
                 Create a 4-week progressive fitness plan for:
                 Name: {$user->first_name}
@@ -37,6 +43,9 @@ class GenerateFitnessPlan implements ShouldQueue
                 Weight: {$user->weight} kg
                 Goals: {$goals}
                 Activity level: {$user->activity_level}
+
+                CONSULTATION CONVERSATION (use this to personalise the plan):
+                {$conversationContext}
 
                 Return ONLY valid JSON:
                 {

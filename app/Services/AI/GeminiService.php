@@ -37,7 +37,7 @@ class GeminiService
         $model  = $config->model_name ?? 'gemini-2.0-flash-lite';
 
         $contents = [];
-        foreach ($history as $msg) {
+        foreach (array_slice($history, -6) as $msg) {
             $contents[] = [
                 'role'  => $msg['role'] === 'rakhi' ? 'model' : 'user',
                 'parts' => [['text' => $msg['message']]]
@@ -51,18 +51,18 @@ class GeminiService
         $payload = [
             'contents'         => $contents,
             'generationConfig' => [
-                'temperature'     => (float) ($config->temperature ?? 0.7),
-                'topP'            => (float) ($config->top_p ?? 0.9),
-                'maxOutputTokens' => $config->max_tokens ?? 1024,
+                'temperature'     => (float) ($config->temperature ?? 0.65),
+                'topP'            => (float) ($config->top_p ?? 0.85),
+                'maxOutputTokens' => $config->max_tokens ?? 220,
             ],
         ];
 
-        // Retry up to 3 times with backoff for 429/503
-        $attempts = 3;
-        $delay    = 5; // seconds
+        // Retry up to 2 times with backoff for 429/503
+        $attempts = 2;
+        $delay    = 3;
 
         for ($i = 0; $i < $attempts; $i++) {
-            $response = Http::timeout(30)->post(
+            $response = Http::timeout(12)->post(
                 "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$apiKey}",
                 $payload
             );
@@ -76,11 +76,9 @@ class GeminiService
 
             $status = $response->status();
 
-            // 429 = quota/rate limit, 503 = overloaded — retry after delay
             if (in_array($status, [429, 503]) && $i < $attempts - 1) {
                 Log::warning("Gemini {$status} on attempt " . ($i + 1) . ", retrying in {$delay}s...");
                 sleep($delay);
-                $delay *= 2; // exponential backoff
                 continue;
             }
 

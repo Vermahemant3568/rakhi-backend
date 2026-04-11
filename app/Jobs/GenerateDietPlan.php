@@ -32,6 +32,12 @@ class GenerateDietPlan implements ShouldQueue
             $user  = $this->user->load('goals', 'language');
             $goals = $user->goals->pluck('name')->join(', ');
 
+            $conversationContext = ChatMessage::where('session_id', $this->sessionId)
+                ->orderBy('id')
+                ->get()
+                ->map(fn($m) => ucfirst($m->role) . ': ' . $m->message)
+                ->join("\n");
+
             // Generate plan via LLM
             $prompt = "You are Rakhi, an expert Indian nutritionist.
                 Create a detailed 7-day personalized diet plan for:
@@ -42,6 +48,9 @@ class GenerateDietPlan implements ShouldQueue
                 Diet preference: {$user->diet_preference}
                 Goals: {$goals}
                 Activity level: {$user->activity_level}
+
+                CONSULTATION CONVERSATION (use this to personalise the plan):
+                {$conversationContext}
 
                 Return ONLY a valid JSON object:
                 {

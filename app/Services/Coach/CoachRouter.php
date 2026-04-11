@@ -125,6 +125,38 @@ class CoachRouter
         }
     }
 
+    /**
+     * Single source of truth for slug → coach service class.
+     * Used by both ChatController and VoiceController.
+     */
+    public function resolveCoachClass(string $slug): string
+    {
+        return match($slug) {
+            'diabetes-coach'        => \App\Services\Coach\DiabetesCoach::class,
+            'diet-nutrition-coach'  => \App\Services\Coach\DietNutritionCoach::class,
+            'fitness-coach'         => \App\Services\Coach\FitnessCoach::class,
+            'pcos-thyroid-coach'    => \App\Services\Coach\PCOSThyroidCoach::class,
+            'mental-wellness-coach' => \App\Services\Coach\MentalWellnessCoach::class,
+            'sleep-coach'           => \App\Services\Coach\SleepCoach::class,
+            'weight-loss-coach'     => \App\Services\Coach\WeightLossCoach::class,
+            'pregnancy-coach'       => \App\Services\Coach\PregnancyCoach::class,
+            'postpartum-coach'      => \App\Services\Coach\PostpartumCoach::class,
+            'energy-coach'          => \App\Services\Coach\EnergyCoach::class,
+            'stress-coach'          => \App\Services\Coach\StressCoach::class,
+            'habit-coach'           => \App\Services\Coach\HabitCoach::class,
+            'vision-coach'          => \App\Services\Coach\VisionCoach::class,
+            default                 => \App\Services\Coach\DietNutritionCoach::class,
+        };
+    }
+
+    /**
+     * Resolve and instantiate the correct coach service for a given slug.
+     */
+    public function resolveCoachService(string $slug): object
+    {
+        return app($this->resolveCoachClass($slug));
+    }
+
     public function resolveCoach(User $user, string $message): Coach
     {
         // Try to match message to a specific coach by keywords

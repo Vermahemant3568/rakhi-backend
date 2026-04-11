@@ -19,8 +19,8 @@ class IntentDetector
             'in english', 'english mein', 'tamil mein', 'telugu lo', 'speak hindi',
         ],
         'plan_request' => [
-            'give me a plan', 'diet plan', 'fitness plan', 'create plan', 'plan banao',
-            'mera plan', 'plan chahiye', 'plan do',
+            'give me a plan', 'diet plan', 'create plan', 'plan banao',
+            'mera plan', 'plan chahiye', 'plan do', 'make me a plan', 'generate plan',
         ],
         'meal_log' => [
             'i ate', 'i had', 'i eat', 'my meal', 'breakfast', 'lunch', 'dinner', 'snack',

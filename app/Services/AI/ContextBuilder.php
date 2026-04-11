@@ -23,22 +23,34 @@ class ContextBuilder
         int $sessionId,
         string $coachNamespace
     ): array {
-        // Always eager-load relationships so coaches never get empty collections
         $user->loadMissing(['goals', 'language', 'coaches']);
 
-        $memories  = [];
-        $knowledge = [];
+        $memories         = [];
+        $knowledge        = [];
+        $structuredMemory = [];
+
+        // Skip expensive Pinecone calls for short/simple messages (greetings, ack, one-liners)
+        $isSimpleMessage = strlen($currentMessage) < 30
+            || preg_match('/^(hi|hey|hello|ok|okay|thanks|haan|nahi|yes|no|sure|hmm|k|👍|😊)$/i', trim($currentMessage));
 
         try {
-            $memories = $this->memory->recall($user, $currentMessage, limit: 5);
+            $structuredMemory = $this->memory->getStructuredMemory($user);
         } catch (\Exception $e) {
-            Log::warning('Memory recall failed (non-fatal): ' . $e->getMessage());
+            Log::warning('Structured memory fetch failed (non-fatal): ' . $e->getMessage());
         }
 
-        try {
-            $knowledge = $this->memory->recallCoachKnowledge($coachNamespace, $currentMessage, limit: 3);
-        } catch (\Exception $e) {
-            Log::warning('Knowledge recall failed (non-fatal): ' . $e->getMessage());
+        if (!$isSimpleMessage) {
+            try {
+                $memories = $this->memory->recall($user, $currentMessage, limit: 3);
+            } catch (\Exception $e) {
+                Log::warning('Memory recall failed (non-fatal): ' . $e->getMessage());
+            }
+
+            try {
+                $knowledge = $this->memory->recallCoachKnowledge($coachNamespace, $currentMessage, limit: 2);
+            } catch (\Exception $e) {
+                Log::warning('Knowledge recall failed (non-fatal): ' . $e->getMessage());
+            }
         }
 
         return [
@@ -46,6 +58,7 @@ class ContextBuilder
             'cross_session_msgs' => $this->getCrossSessionHistory($user->id, $sessionId),
             'memories'           => $memories,
             'knowledge'          => $knowledge,
+            'structured_memory'  => $structuredMemory,
             'checkin'            => $this->getTodayCheckin($user->id),
             'meals_today'        => $this->getTodayMeals($user->id),
             'existing_plans'     => $this->getExistingPlans($user->id),
@@ -63,7 +76,7 @@ class ContextBuilder
     {
         return ChatMessage::where('session_id', $sessionId)
             ->orderBy('created_at', 'asc')
-            ->take(20)
+            ->take(8)
             ->get()
             ->map(fn($m) => [
                 'role'    => $m->role,
@@ -91,7 +104,7 @@ class ContextBuilder
         return ChatMessage::whereIn('session_id', $previousSessions)
             ->where('role', 'rakhi')
             ->orderBy('created_at', 'desc')
-            ->take(6)
+            ->take(3)
             ->get()
             ->map(fn($m) => [
                 'role'    => $m->role,
