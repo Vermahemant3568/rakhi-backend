@@ -44,7 +44,10 @@ class ApiServiceSeeder extends Seeder
             [
                 'service_name' => 'firebase',
                 'display_name' => 'Firebase Push Notifications',
-                'config'       => json_encode(['server_key' => 'your_firebase_server_key']),
+                'config'       => json_encode([
+                    'server_key' => 'your_firebase_server_key',
+                    'project_id' => 'your_firebase_project_id',
+                ]),
                 'is_active'    => 1,
             ],
             [
@@ -60,9 +63,10 @@ class ApiServiceSeeder extends Seeder
                 'service_name' => 'pusher',
                 'display_name' => 'Pusher Real-time',
                 'config'       => json_encode([
-                    'app_id'  => 'your_pusher_app_id',
-                    'app_key' => 'your_pusher_app_key',
-                    'cluster' => 'ap2',
+                    'app_id'     => 'your_pusher_app_id',
+                    'app_key'    => 'your_pusher_app_key',
+                    'app_secret' => 'your_pusher_app_secret',
+                    'cluster'    => 'ap2',
                 ]),
                 'is_active'    => 1,
             ],

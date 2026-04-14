@@ -3,18 +3,20 @@
 namespace App\Services\Notification;
 
 use App\Models\User;
+use App\Services\ApiConfigService;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 class PushNotificationService
 {
-    private string $serverKey;
-    private string $projectId;
-
-    public function __construct()
+    private function serverKey(): string
     {
-        $this->serverKey = config('services.firebase.server_key');
-        $this->projectId = config('services.firebase.project_id');
+        return ApiConfigService::get('firebase', 'server_key', config('services.firebase.server_key'));
+    }
+
+    private function projectId(): string
+    {
+        return ApiConfigService::get('firebase', 'project_id', config('services.firebase.project_id'));
     }
 
     public function sendToUser(User $user, string $title, string $body, array $data = []): bool
@@ -37,10 +39,10 @@ class PushNotificationService
     {
         try {
             $response = Http::withHeaders([
-                'Authorization' => 'Bearer ' . $this->serverKey,
+                'Authorization' => 'Bearer ' . $this->serverKey(),
                 'Content-Type'  => 'application/json',
             ])->post(
-                "https://fcm.googleapis.com/v1/projects/{$this->projectId}/messages:send",
+                "https://fcm.googleapis.com/v1/projects/{$this->projectId()}/messages:send",
                 [
                     'message' => [
                         'token'        => $token,

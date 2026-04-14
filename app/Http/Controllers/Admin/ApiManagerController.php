@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\ApiService;
 use App\Models\LlmConfig;
+use App\Services\ApiConfigService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -45,6 +46,9 @@ class ApiManagerController extends Controller
         ]);
 
         $apiService->update($data);
+
+        // Clear cache so services pick up new config immediately
+        ApiConfigService::forget($apiService->service_name);
 
         return response()->json($apiService->fresh());
     }
@@ -174,6 +178,8 @@ class ApiManagerController extends Controller
     {
         $service = ApiService::findOrFail($id);
         $service->update(['is_active' => !$service->is_active]);
+
+        ApiConfigService::forget($service->service_name);
 
         return response()->json(['success' => true, 'data' => $service->fresh()]);
     }

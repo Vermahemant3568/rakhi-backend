@@ -5,10 +5,14 @@ namespace App\Services\Voice;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use App\Services\ApiConfigService;
 
 class TTSService
 {
-    private string $apiKey;
+    private function apiKey(): string
+    {
+        return ApiConfigService::get('google_tts', 'api_key', config('services.google.api_key'));
+    }
 
     private array $voiceMap = [
         'en-IN' => ['name' => 'en-IN-Neural2-A', 'gender' => 'FEMALE'],
@@ -19,18 +23,13 @@ class TTSService
         'mr-IN' => ['name' => 'mr-IN-Wavenet-A', 'gender' => 'FEMALE'],
     ];
 
-    public function __construct()
-    {
-        $this->apiKey = config('services.google.api_key');
-    }
-
     public function synthesize(string $text, string $languageCode = 'en-IN'): string
     {
         try {
             $voice = $this->voiceMap[$languageCode] ?? $this->voiceMap['en-IN'];
 
             $response = Http::timeout(30)->post(
-                "https://texttospeech.googleapis.com/v1/text:synthesize?key={$this->apiKey}",
+                "https://texttospeech.googleapis.com/v1/text:synthesize?key={$this->apiKey()}",
                 [
                     'input' => ['text' => $text],
                     'voice' => [

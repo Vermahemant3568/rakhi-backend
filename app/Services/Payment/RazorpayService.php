@@ -2,24 +2,28 @@
 
 namespace App\Services\Payment;
 
+use App\Services\ApiConfigService;
 use Razorpay\Api\Api;
 
 class RazorpayService
 {
-    private Api $api;
-
-    public function __construct()
+    private function client(): Api
     {
-        $this->api = new Api(
-            config('services.razorpay.key_id'),
-            config('services.razorpay.key_secret')
+        return new Api(
+            ApiConfigService::get('razorpay', 'key_id', config('services.razorpay.key_id')),
+            ApiConfigService::get('razorpay', 'key_secret', config('services.razorpay.key_secret'))
         );
+    }
+
+    public function getKeyId(): string
+    {
+        return ApiConfigService::get('razorpay', 'key_id', config('services.razorpay.key_id'));
     }
 
     public function createOrder(float $amount): array
     {
-        $order = $this->api->order->create([
-            'amount'   => $amount * 100, // paise
+        $order = $this->client()->order->create([
+            'amount'   => $amount * 100,
             'currency' => 'INR',
             'receipt'  => 'rakhi_' . time(),
         ]);
@@ -33,7 +37,7 @@ class RazorpayService
         string $signature
     ): bool {
         try {
-            $this->api->utility->verifyPaymentSignature([
+            $this->client()->utility->verifyPaymentSignature([
                 'razorpay_order_id'   => $orderId,
                 'razorpay_payment_id' => $paymentId,
                 'razorpay_signature'  => $signature,

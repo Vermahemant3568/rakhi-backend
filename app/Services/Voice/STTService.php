@@ -4,14 +4,13 @@ namespace App\Services\Voice;
 
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use App\Services\ApiConfigService;
 
 class STTService
 {
-    private string $apiKey;
-
-    public function __construct()
+    private function apiKey(): string
     {
-        $this->apiKey = config('services.google.api_key');
+        return ApiConfigService::get('google_stt', 'api_key', config('services.google.api_key'));
     }
 
     public function transcribe(
@@ -23,7 +22,7 @@ class STTService
             $encoding = $this->getEncoding($mimeType);
 
             $response = Http::timeout(30)->post(
-                "https://speech.googleapis.com/v1/speech:recognize?key={$this->apiKey}",
+                "https://speech.googleapis.com/v1/speech:recognize?key={$this->apiKey()}",
                 [
                     'config' => [
                         'encoding'                  => $encoding,

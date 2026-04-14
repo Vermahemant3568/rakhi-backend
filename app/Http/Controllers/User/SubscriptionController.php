@@ -74,7 +74,7 @@ class SubscriptionController extends Controller
             'success'  => true,
             'order'    => $order,
             'plan'     => $plan,
-            'key_id'   => config('services.razorpay.key_id'),
+            'key_id'   => $this->razorpay->getKeyId(),
         ]);
     }
 

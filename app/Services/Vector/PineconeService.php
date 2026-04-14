@@ -4,24 +4,24 @@ namespace App\Services\Vector;
 
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use App\Services\ApiConfigService;
 
 class PineconeService
 {
-    private string $apiKey;
-    private string $baseUrl;
-    private string $index;
-
-    public function __construct()
+    private function apiKey(): string
     {
-        $this->apiKey  = config('services.pinecone.api_key');
-        $this->baseUrl = config('services.pinecone.host');
-        $this->index   = config('rakhi.pinecone_index');
+        return ApiConfigService::get('pinecone', 'api_key', config('services.pinecone.api_key'));
+    }
+
+    private function baseUrl(): string
+    {
+        return ApiConfigService::get('pinecone', 'host', config('services.pinecone.host'));
     }
 
     private function headers(): array
     {
         return [
-            'Api-Key'      => $this->apiKey,
+            'Api-Key'      => $this->apiKey(),
             'Content-Type' => 'application/json',
         ];
     }
@@ -33,7 +33,7 @@ class PineconeService
         array $metadata = []
     ): bool {
         $response = Http::withHeaders($this->headers())
-            ->post("{$this->baseUrl}/vectors/upsert", [
+            ->post("{$this->baseUrl()}/vectors/upsert", [
                 'namespace' => $namespace,
                 'vectors'   => [[
                     'id'       => $id,
@@ -68,7 +68,7 @@ class PineconeService
         }
 
         $response = Http::withHeaders($this->headers())
-            ->post("{$this->baseUrl}/query", $body);
+            ->post("{$this->baseUrl()}/query", $body);
 
         if ($response->failed()) {
             Log::error('Pinecone query failed: ' . $response->body());
@@ -81,7 +81,7 @@ class PineconeService
     public function delete(string $namespace, string $id): bool
     {
         $response = Http::withHeaders($this->headers())
-            ->post("{$this->baseUrl}/vectors/delete", [
+            ->post("{$this->baseUrl()}/vectors/delete", [
                 'namespace' => $namespace,
                 'ids'       => [$id],
             ]);

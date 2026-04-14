@@ -5,6 +5,7 @@ namespace App\Services\Auth;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use App\Services\ApiConfigService;
 
 class OtpService
 {
@@ -66,15 +67,24 @@ class OtpService
     public function send(string $mobile, string $otp): bool
     {
         if (app()->environment('local')) {
+            Log::info("[OTP LOCAL] mobile={$mobile} otp={$otp}");
             return true;
+        }
+
+        $apiKey     = ApiConfigService::get('msg91', 'api_key');
+        $templateId = ApiConfigService::get('msg91', 'template_id');
+
+        if (empty($apiKey) || empty($templateId)) {
+            Log::error('MSG91 config missing in api_services table (api_key or template_id)');
+            return false;
         }
 
         try {
             $response = Http::withHeaders([
-                'authkey'      => config('services.msg91.key'),
+                'authkey'      => $apiKey,
                 'Content-Type' => 'application/json',
             ])->post('https://api.msg91.com/api/v5/otp', [
-                'template_id' => config('services.msg91.template_id'),
+                'template_id' => $templateId,
                 'mobile'      => '91' . $mobile,
                 'otp'         => $otp,
             ]);
