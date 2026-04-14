@@ -41,7 +41,7 @@ class OtpService
         $apiKey = ApiConfigService::get('fast2sms', 'api_key');
 
         if (empty($apiKey)) {
-            Log::error('Fast2SMS api_key missing. Go to Admin Panel → API Manager → fast2sms.');
+            Log::error('Fast2SMS api_key missing.');
             return false;
         }
 
@@ -50,9 +50,10 @@ class OtpService
                 'authorization' => $apiKey,
                 'accept'        => 'application/json',
             ])->post('https://www.fast2sms.com/dev/bulkV2', [
-                'route'            => 'otp',
-                'variables_values' => $otp,
-                'numbers'          => $mobile,
+                'route'    => 'q',
+                'message'  => "Your Rakhi OTP is {$otp}",
+                'language' => 'english',
+                'numbers'  => $mobile,
             ]);
 
             $data = $response->json();
