@@ -195,9 +195,15 @@ class ApiManagerController extends Controller
     public function toggle(ApiService $apiService): JsonResponse
     {
         $apiService->update(['is_active' => !$apiService->is_active]);
-
         $this->clearServiceCache($apiService->service_name);
+        return response()->json(['success' => true, 'data' => $apiService->fresh()]);
+    }
 
+    public function toggleById(int $id): JsonResponse
+    {
+        $apiService = ApiService::findOrFail($id);
+        $apiService->update(['is_active' => !$apiService->is_active]);
+        $this->clearServiceCache($apiService->service_name);
         return response()->json(['success' => true, 'data' => $apiService->fresh()]);
     }
 

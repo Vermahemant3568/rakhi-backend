@@ -9,17 +9,15 @@ use Illuminate\Support\Facades\Log;
 
 class OtpService
 {
-    private int $otpTtlMinutes  = 10;
     private int $maxSendPerHour = 3;
-    private int $maxVerifyTries = 3;
+
+    // ─── Send OTP (MSG91 generates it automatically) ──────────────────────────
 
     public function generate(string $mobile): string
     {
         $otp = strval(rand(100000, 999999));
-
-        $this->cachePut("otp_{$mobile}", $otp, $this->otpTtlMinutes * 60);
-        $this->cachePut("otp_tries_{$mobile}", 0, $this->otpTtlMinutes * 60);
-
+        // Store in cache for local verification only
+        $this->cachePut("otp_{$mobile}", $otp, 600);
         return $otp;
     }
 
@@ -34,8 +32,47 @@ class OtpService
         $this->cachePut("otp_send_count_{$mobile}", $count + 1, 3600);
     }
 
+    public function send(string $mobile, string $otp): bool
+    {
+        if (app()->environment('local')) {
+            return true;
+        }
+
+        $apiKey = ApiConfigService::get('fast2sms', 'api_key');
+
+        if (empty($apiKey)) {
+            Log::error('Fast2SMS api_key missing. Go to Admin Panel → API Manager → fast2sms.');
+            return false;
+        }
+
+        try {
+            $response = Http::withHeaders([
+                'authorization' => $apiKey,
+                'accept'        => 'application/json',
+            ])->post('https://www.fast2sms.com/dev/bulkV2', [
+                'route'            => 'otp',
+                'variables_values' => $otp,
+                'numbers'          => $mobile,
+            ]);
+
+            $data = $response->json();
+
+            if (isset($data['return']) && $data['return'] === true) {
+                return true;
+            }
+
+            Log::error('Fast2SMS OTP failed', $data ?? []);
+            return false;
+
+        } catch (\Exception $e) {
+            Log::error('OTP Exception: ' . $e->getMessage());
+            return false;
+        }
+    }
+
     public function verify(string $mobile, string $otp): array
     {
+        // Fast2SMS has no verify endpoint — verify against cached OTP
         $cached = $this->cacheGet("otp_{$mobile}");
 
         if (!$cached) {
@@ -44,72 +81,24 @@ class OtpService
 
         $tries = (int) $this->cacheGet("otp_tries_{$mobile}", 0);
 
-        if ($tries >= $this->maxVerifyTries) {
+        if ($tries >= 3) {
             $this->cacheForget("otp_{$mobile}");
             $this->cacheForget("otp_tries_{$mobile}");
             return ['success' => false, 'message' => 'Too many attempts. Please request a new OTP.'];
         }
 
         if ($cached !== $otp) {
-            $this->cachePut("otp_tries_{$mobile}", $tries + 1, $this->otpTtlMinutes * 60);
-            $remaining = $this->maxVerifyTries - $tries - 1;
+            $this->cachePut("otp_tries_{$mobile}", $tries + 1, 600);
+            $remaining = 3 - $tries - 1;
             return ['success' => false, 'message' => "Invalid OTP. {$remaining} attempts remaining."];
         }
 
         $this->cacheForget("otp_{$mobile}");
         $this->cacheForget("otp_tries_{$mobile}");
-
         return ['success' => true, 'message' => 'OTP verified'];
     }
 
-    public function send(string $mobile, string $otp): bool
-    {
-        // On local — log OTP and skip real send
-        if (app()->environment('local')) {
-            Log::info("[OTP LOCAL] mobile={$mobile} otp={$otp}");
-            return true;
-        }
-
-        $apiKey     = ApiConfigService::get('msg91', 'api_key');
-        $templateId = ApiConfigService::get('msg91', 'template_id');
-
-        if (empty($apiKey) || empty($templateId)) {
-            Log::error('MSG91 config missing in api_services table. Set api_key and template_id from Admin Panel.');
-            return false;
-        }
-
-        try {
-            $response = Http::timeout(10)
-                ->withHeaders([
-                    'authkey'      => $apiKey,
-                    'Content-Type' => 'application/json',
-                    'Accept'       => 'application/json',
-                ])
-                ->post('https://api.msg91.com/api/v5/otp', [
-                    'template_id' => $templateId,
-                    'mobile'      => '91' . $mobile,
-                    'otp'         => $otp,
-                ]);
-
-            if ($response->successful()) {
-                Log::info("OTP sent successfully to {$mobile}");
-                return true;
-            }
-
-            Log::error('MSG91 OTP send failed', [
-                'mobile'   => $mobile,
-                'status'   => $response->status(),
-                'response' => $response->body(),
-            ]);
-            return false;
-
-        } catch (\Exception $e) {
-            Log::error('OTP send exception: ' . $e->getMessage());
-            return false;
-        }
-    }
-
-    // ─── Cache helpers — never crash if cache fails ───────────────────────────
+    // ─── Cache helpers ────────────────────────────────────────────────────────
 
     private function cachePut(string $key, mixed $value, int $seconds): void
     {

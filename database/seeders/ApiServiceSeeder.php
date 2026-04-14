@@ -60,6 +60,14 @@ class ApiServiceSeeder extends Seeder
                 'is_active'    => 1,
             ],
             [
+                'service_name' => 'fast2sms',
+                'display_name' => 'Fast2SMS OTP Service',
+                'config'       => json_encode([
+                    'api_key' => 'your_fast2sms_api_key',
+                ]),
+                'is_active'    => 1,
+            ],
+            [
                 'service_name' => 'pusher',
                 'display_name' => 'Pusher Real-time',
                 'config'       => json_encode([
