@@ -14,12 +14,15 @@ class ApiManagerController extends Controller
 {
     public function index(): JsonResponse
     {
-        return response()->json(ApiService::all());
+        return response()->json([
+            'success' => true,
+            'data'    => ApiService::orderBy('id')->get(),
+        ]);
     }
 
     public function show(ApiService $apiService): JsonResponse
     {
-        return response()->json($apiService);
+        return response()->json(['success' => true, 'data' => $apiService]);
     }
 
     public function store(Request $request): JsonResponse
@@ -27,13 +30,16 @@ class ApiManagerController extends Controller
         $data = $request->validate([
             'service_name' => 'required|string|max:100',
             'display_name' => 'required|string|max:150',
-            'config'       => 'required|array',
+            'config'       => 'required',
             'is_active'    => 'boolean',
         ]);
 
-        $data['config'] = $data['config'];
+        // Accept config as JSON string or array
+        $data['config'] = is_string($data['config'])
+            ? json_decode($data['config'], true) ?? []
+            : $data['config'];
 
-        return response()->json(ApiService::create($data), 201);
+        return response()->json(['success' => true, 'data' => ApiService::create($data)], 201);
     }
 
     public function update(Request $request, ApiService $apiService): JsonResponse
@@ -41,23 +47,35 @@ class ApiManagerController extends Controller
         $data = $request->validate([
             'service_name' => 'sometimes|string|max:100',
             'display_name' => 'sometimes|string|max:150',
-            'config'       => 'sometimes|array',
-            'is_active'    => 'boolean',
+            'config'       => 'sometimes',
+            'is_active'    => 'sometimes|boolean',
         ]);
+
+        // Accept config as JSON string or array
+        if (isset($data['config']) && is_string($data['config'])) {
+            $decoded = json_decode($data['config'], true);
+            if (json_last_error() !== JSON_ERROR_NONE) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Invalid JSON in config field: ' . json_last_error_msg(),
+                ], 422);
+            }
+            $data['config'] = $decoded;
+        }
 
         $apiService->update($data);
 
         // Clear cache so services pick up new config immediately
-        ApiConfigService::forget($apiService->service_name);
+        $this->clearServiceCache($apiService->service_name);
 
-        return response()->json($apiService->fresh());
+        return response()->json(['success' => true, 'data' => $apiService->fresh()]);
     }
 
     public function destroy(ApiService $apiService): JsonResponse
     {
+        $this->clearServiceCache($apiService->service_name);
         $apiService->delete();
-
-        return response()->json(['message' => 'Deleted successfully']);
+        return response()->json(['success' => true, 'message' => 'Deleted successfully']);
     }
 
     public function test(ApiService $apiService): JsonResponse
@@ -178,8 +196,20 @@ class ApiManagerController extends Controller
     {
         $apiService->update(['is_active' => !$apiService->is_active]);
 
-        ApiConfigService::forget($apiService->service_name);
+        $this->clearServiceCache($apiService->service_name);
 
         return response()->json(['success' => true, 'data' => $apiService->fresh()]);
+    }
+
+    /**
+     * Clear service config cache safely — works even if cache driver has issues.
+     */
+    private function clearServiceCache(string $serviceName): void
+    {
+        try {
+            ApiConfigService::forget($serviceName);
+        } catch (\Exception $e) {
+            Log::warning('Cache clear failed (non-fatal): ' . $e->getMessage());
+        }
     }
 }

@@ -13,36 +13,37 @@ class ApiConfigService
      */
     public static function get(string $serviceName, string $key, mixed $default = null): mixed
     {
-        $config = Cache::remember("api_config_{$serviceName}", 300, function () use ($serviceName) {
-            $service = ApiService::where('service_name', $serviceName)
-                ->where('is_active', 1)
-                ->first();
-
-            return $service?->config ?? [];
-        });
-
+        $config = static::all($serviceName);
         return $config[$key] ?? $default;
     }
 
-    /**
-     * Get the full config array for a service.
-     */
     public static function all(string $serviceName): array
     {
-        return Cache::remember("api_config_{$serviceName}", 300, function () use ($serviceName) {
-            $service = ApiService::where('service_name', $serviceName)
-                ->where('is_active', 1)
-                ->first();
-
-            return $service?->config ?? [];
-        });
+        try {
+            return Cache::remember("api_config_{$serviceName}", 300, function () use ($serviceName) {
+                return static::fetchFromDb($serviceName);
+            });
+        } catch (\Exception $e) {
+            // Cache unavailable (e.g. DB cache table missing) — read directly
+            return static::fetchFromDb($serviceName);
+        }
     }
 
-    /**
-     * Clear cache for a service — call this after admin updates.
-     */
+    private static function fetchFromDb(string $serviceName): array
+    {
+        $service = ApiService::where('service_name', $serviceName)
+            ->where('is_active', 1)
+            ->first();
+
+        return $service?->config ?? [];
+    }
+
     public static function forget(string $serviceName): void
     {
-        Cache::forget("api_config_{$serviceName}");
+        try {
+            Cache::forget("api_config_{$serviceName}");
+        } catch (\Exception $e) {
+            // Cache unavailable — nothing to clear
+        }
     }
 }

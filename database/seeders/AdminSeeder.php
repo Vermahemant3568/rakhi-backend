@@ -12,8 +12,8 @@ class AdminSeeder extends Seeder
     {
         DB::table('admins')->insertOrIgnore([
             'name'       => 'Super Admin',
-            'email'      => 'admin@rakhi.ai',Admin@1234
-            'password'   => Hash::make(''),
+            'email'      => 'admin@rakhi.ai',
+            'password'   => Hash::make('Admin@1234'),
             'is_active'  => 1,
             'created_at' => now(),
             'updated_at' => now(),
