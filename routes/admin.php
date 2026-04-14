@@ -29,10 +29,12 @@ Route::prefix('admin')->group(function () {
         Route::get('/dashboard', [DashboardController::class, 'index']);
 
         // API Manager
-        Route::get('/api-manager',              [ApiManagerController::class, 'index']);
-        Route::put('/api-manager/{id}/toggle',  [ApiManagerController::class, 'toggle']);
-        Route::put('/api-manager/{id}/update',  [ApiManagerController::class, 'update']);
-        Route::post('/api-manager/test/{id}',   [ApiManagerController::class, 'test']);
+        Route::get('/api-manager',                      [ApiManagerController::class, 'index']);
+        Route::post('/api-manager',                     [ApiManagerController::class, 'store']);
+        Route::put('/api-manager/{apiService}/toggle',  [ApiManagerController::class, 'toggle']);
+        Route::put('/api-manager/{apiService}',         [ApiManagerController::class, 'update']);
+        Route::post('/api-manager/{apiService}/test',   [ApiManagerController::class, 'test']);
+        Route::delete('/api-manager/{apiService}',      [ApiManagerController::class, 'destroy']);
 
         // LLM Config
         Route::get('/llm-configs',              [ApiManagerController::class, 'llmList']);

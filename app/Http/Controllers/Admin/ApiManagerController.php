@@ -174,13 +174,12 @@ class ApiManagerController extends Controller
         return response()->json(['success' => true, 'message' => 'LLM activated']);
     }
 
-    public function toggle(int $id): JsonResponse
+    public function toggle(ApiService $apiService): JsonResponse
     {
-        $service = ApiService::findOrFail($id);
-        $service->update(['is_active' => !$service->is_active]);
+        $apiService->update(['is_active' => !$apiService->is_active]);
 
-        ApiConfigService::forget($service->service_name);
+        ApiConfigService::forget($apiService->service_name);
 
-        return response()->json(['success' => true, 'data' => $service->fresh()]);
+        return response()->json(['success' => true, 'data' => $apiService->fresh()]);
     }
 }
