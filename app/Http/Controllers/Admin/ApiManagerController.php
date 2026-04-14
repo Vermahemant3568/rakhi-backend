@@ -14,10 +14,28 @@ class ApiManagerController extends Controller
 {
     public function index(): JsonResponse
     {
-        return response()->json([
-            'success' => true,
-            'data'    => ApiService::orderBy('id')->get(),
-        ]);
+        $services = ApiService::orderBy('id')->get()->map(function ($service) {
+            $data = $service->toArray();
+            $data['field_labels'] = $this->getFieldLabels($service->service_name);
+            return $data;
+        });
+
+        return response()->json(['success' => true, 'data' => $services]);
+    }
+
+    private function getFieldLabels(string $serviceName): array
+    {
+        return match($serviceName) {
+            'fast2sms'   => ['api_key'    => 'Fast2SMS API Key'],
+            'msg91'      => ['api_key'    => 'MSG91 Auth Key', 'template_id' => 'Template ID'],
+            'google_stt' => ['api_key'    => 'Google API Key'],
+            'google_tts' => ['api_key'    => 'Google API Key'],
+            'pinecone'   => ['api_key'    => 'Pinecone API Key', 'host' => 'Host URL', 'index' => 'Index Name'],
+            'razorpay'   => ['key_id'     => 'Razorpay Key ID', 'key_secret' => 'Razorpay Key Secret'],
+            'firebase'   => ['server_key' => 'Firebase Server Key', 'project_id' => 'Project ID'],
+            'pusher'     => ['app_id'     => 'App ID', 'app_key' => 'App Key', 'app_secret' => 'App Secret', 'cluster' => 'Cluster'],
+            default      => [],
+        };
     }
 
     public function show(ApiService $apiService): JsonResponse
