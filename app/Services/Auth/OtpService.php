@@ -57,6 +57,8 @@ class OtpService
 
             $data = $response->json();
 
+            Log::info('Fast2SMS response', $data ?? []);
+
             if (isset($data['return']) && $data['return'] === true) {
                 return true;
             }
