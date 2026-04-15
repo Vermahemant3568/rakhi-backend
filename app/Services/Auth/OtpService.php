@@ -130,8 +130,14 @@ class OtpService
 
     public function verify(string $mobile, string $otp): array
     {
-        // Fast2SMS has no verify endpoint — verify against cached OTP
         $cached = $this->cacheGet("otp_{$mobile}");
+        $otp    = trim($otp);
+
+        Log::info('OTP verify attempt', [
+            'mobile'  => $mobile,
+            'entered' => $otp,
+            'cached'  => $cached ?? 'NOT_FOUND',
+        ]);
 
         if (!$cached) {
             return ['success' => false, 'message' => 'OTP expired or not found. Please request a new one.'];
@@ -145,7 +151,7 @@ class OtpService
             return ['success' => false, 'message' => 'Too many attempts. Please request a new OTP.'];
         }
 
-        if ($cached !== $otp) {
+        if ((string) $cached !== (string) $otp) {
             $this->cachePut("otp_tries_{$mobile}", $tries + 1, 600);
             $remaining = 3 - $tries - 1;
             return ['success' => false, 'message' => "Invalid OTP. {$remaining} attempts remaining."];
