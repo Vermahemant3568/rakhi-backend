@@ -73,6 +73,13 @@ class ApiServiceSeeder extends Seeder
                 'is_active'    => 1,
             ],
             [
+                'service_name' => 'msg91',
+                'display_name' => 'MSG91 OTP Service',
+                'config'       => json_encode(['api_key' => '', 'template_id' => '']),
+                'field_labels' => json_encode(['api_key' => 'MSG91 Auth Key', 'template_id' => 'OTP Template ID']),
+                'is_active'    => 0,
+            ],
+            [
                 'service_name' => 'pusher',
                 'display_name' => 'Pusher Real-time',
                 'config'       => json_encode([

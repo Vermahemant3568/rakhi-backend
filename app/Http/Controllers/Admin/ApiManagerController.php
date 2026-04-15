@@ -8,6 +8,7 @@ use App\Models\LlmConfig;
 use App\Services\ApiConfigService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 class ApiManagerController extends Controller
@@ -80,8 +81,9 @@ class ApiManagerController extends Controller
 
     public function test(ApiService $apiService): JsonResponse
     {
-        // Placeholder for actual connectivity test per service type
         $result = match ($apiService->service_name) {
+            'msg91'                    => $this->testMsg91($apiService),
+            'fast2sms'                 => $this->testFast2Sms($apiService),
             'google_stt', 'google_tts' => $this->testGoogle($apiService),
             'pinecone'                 => $this->testPinecone($apiService),
             'razorpay'                 => $this->testRazorpay($apiService),
@@ -92,6 +94,68 @@ class ApiManagerController extends Controller
         $apiService->update(['last_tested_at' => now()]);
 
         return response()->json($result);
+    }
+
+    private function testMsg91(ApiService $apiService): array
+    {
+        $apiKey = $apiService->config['api_key'] ?? '';
+
+        if (empty($apiKey)) {
+            return ['success' => false, 'message' => 'Invalid MSG91 Auth Key.'];
+        }
+
+        try {
+            $response = Http::withHeaders([
+                'authkey' => $apiKey,
+                'accept'  => 'application/json',
+            ])->get('https://control.msg91.com/api/v5/balance');
+
+            $data = $response->json();
+
+            if ($response->successful() && isset($data['balance'])) {
+                return ['success' => true, 'message' => 'MSG91 connected successfully.'];
+            }
+
+            return ['success' => false, 'message' => 'Invalid MSG91 Auth Key.'];
+        } catch (\Exception $e) {
+            return ['success' => false, 'message' => 'Invalid MSG91 Auth Key.'];
+        }
+    }
+
+    private function testFast2Sms(ApiService $apiService): array
+    {
+        $apiKey = $apiService->config['api_key'] ?? '';
+
+        if (empty($apiKey)) {
+            return ['success' => false, 'message' => 'Invalid Fast2SMS API Key.'];
+        }
+
+        try {
+            // Wallet endpoint rejects some valid keys — use send endpoint with dummy number instead.
+            // status_code 412 = invalid auth key. Any other code means key is valid.
+            $response = Http::withHeaders([
+                'authorization' => $apiKey,
+                'accept'        => 'application/json',
+            ])->post('https://www.fast2sms.com/dev/bulkV2', [
+                'route'    => 'q',
+                'message'  => 'Test',
+                'language' => 'english',
+                'numbers'  => '9999999999',
+            ]);
+
+            $data = $response->json();
+            Log::info('Fast2SMS test response', $data ?? []);
+
+            // 412 = invalid auth key
+            if (isset($data['status_code']) && $data['status_code'] === 412) {
+                return ['success' => false, 'message' => 'Invalid Fast2SMS API Key.'];
+            }
+
+            return ['success' => true, 'message' => 'Fast2SMS connected successfully.'];
+        } catch (\Exception $e) {
+            Log::error('Fast2SMS test exception: ' . $e->getMessage());
+            return ['success' => false, 'message' => 'Invalid Fast2SMS API Key.'];
+        }
     }
 
     private function testGoogle(ApiService $apiService): array
@@ -194,16 +258,32 @@ class ApiManagerController extends Controller
 
     public function toggle(ApiService $apiService): JsonResponse
     {
-        $apiService->update(['is_active' => !$apiService->is_active]);
+        $newState = !$apiService->is_active;
+        $apiService->update(['is_active' => $newState]);
         $this->clearServiceCache($apiService->service_name);
+
+        // MSG91 ON → disable Fast2SMS
+        if ($apiService->service_name === 'msg91' && $newState) {
+            ApiService::where('service_name', 'fast2sms')->update(['is_active' => 0]);
+            $this->clearServiceCache('fast2sms');
+        }
+
         return response()->json(['success' => true, 'data' => $apiService->fresh()]);
     }
 
     public function toggleById(int $id): JsonResponse
     {
         $apiService = ApiService::findOrFail($id);
-        $apiService->update(['is_active' => !$apiService->is_active]);
+        $newState   = !$apiService->is_active;
+        $apiService->update(['is_active' => $newState]);
         $this->clearServiceCache($apiService->service_name);
+
+        // MSG91 ON → disable Fast2SMS
+        if ($apiService->service_name === 'msg91' && $newState) {
+            ApiService::where('service_name', 'fast2sms')->update(['is_active' => 0]);
+            $this->clearServiceCache('fast2sms');
+        }
+
         return response()->json(['success' => true, 'data' => $apiService->fresh()]);
     }
 

@@ -38,7 +38,54 @@ class OtpService
             return true;
         }
 
-        $apiKey = ApiConfigService::get('fast2sms', 'api_key');
+        $msg91 = \App\Models\ApiService::where('service_name', 'msg91')->first();
+
+        if ($msg91?->is_active) {
+            $apiKey     = $msg91->config['api_key'] ?? '';
+            $templateId = $msg91->config['template_id'] ?? '';
+
+            if (!empty($apiKey) && !empty($templateId)) {
+                return $this->sendViaMsg91($mobile, $otp, $apiKey, $templateId);
+            }
+        }
+
+        return $this->sendViaFast2Sms($mobile, $otp);
+    }
+
+    private function sendViaMsg91(string $mobile, string $otp, string $apiKey, string $templateId): bool
+    {
+        try {
+            $response = Http::withHeaders([
+                'authkey'      => $apiKey,
+                'accept'       => 'application/json',
+                'content-type' => 'application/json',
+            ])->post('https://control.msg91.com/api/v5/otp', [
+                'template_id' => $templateId,
+                'mobile'      => '91' . $mobile,
+                'otp'         => $otp,
+            ]);
+
+            $data = $response->json();
+            Log::info('MSG91 response', $data ?? []);
+
+            if (isset($data['type']) && $data['type'] === 'success') {
+                return true;
+            }
+
+            Log::error('MSG91 OTP failed', $data ?? []);
+            return false;
+
+        } catch (\Exception $e) {
+            Log::error('MSG91 OTP Exception: ' . $e->getMessage());
+            return false;
+        }
+    }
+
+    private function sendViaFast2Sms(string $mobile, string $otp): bool
+    {
+        // Read directly from DB — avoids stale cache after admin panel update
+        $service = \App\Models\ApiService::where('service_name', 'fast2sms')->first();
+        $apiKey  = $service?->config['api_key'] ?? '';
 
         if (empty($apiKey)) {
             Log::error('Fast2SMS api_key missing.');
@@ -57,7 +104,6 @@ class OtpService
             ]);
 
             $data = $response->json();
-
             Log::info('Fast2SMS response', $data ?? []);
 
             if (isset($data['return']) && $data['return'] === true) {
@@ -68,7 +114,7 @@ class OtpService
             return false;
 
         } catch (\Exception $e) {
-            Log::error('OTP Exception: ' . $e->getMessage());
+            Log::error('Fast2SMS OTP Exception: ' . $e->getMessage());
             return false;
         }
     }
