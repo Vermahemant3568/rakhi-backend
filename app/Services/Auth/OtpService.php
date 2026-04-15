@@ -38,7 +38,12 @@ class OtpService
             return true;
         }
 
-        $msg91 = \App\Models\ApiService::where('service_name', 'msg91')->first();
+        try {
+            $msg91 = \App\Models\ApiService::where('service_name', 'msg91')->first();
+        } catch (\Exception $e) {
+            Log::error('OTP: DB read failed for msg91 — ' . $e->getMessage());
+            $msg91 = null;
+        }
 
         if ($msg91?->is_active) {
             $apiKey     = $msg91->config['api_key'] ?? '';
@@ -83,9 +88,13 @@ class OtpService
 
     private function sendViaFast2Sms(string $mobile, string $otp): bool
     {
-        // Read directly from DB — avoids stale cache after admin panel update
-        $service = \App\Models\ApiService::where('service_name', 'fast2sms')->first();
-        $apiKey  = $service?->config['api_key'] ?? '';
+        try {
+            $service = \App\Models\ApiService::where('service_name', 'fast2sms')->first();
+            $apiKey  = $service?->config['api_key'] ?? '';
+        } catch (\Exception $e) {
+            Log::error('Fast2SMS: DB read failed — ' . $e->getMessage());
+            return false;
+        }
 
         if (empty($apiKey)) {
             Log::error('Fast2SMS api_key missing.');
