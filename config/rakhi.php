@@ -4,8 +4,8 @@ return [
     'trial_days'                  => 7,
     'max_chat_messages_trial'     => 50,
     'default_language'            => 'en',
-    'pinecone_index'              => 'rakhi-ai',
-    'pinecone_host'               => 'https://rakhi-ai-vsu28xc.svc.aped-4627-b74a.pinecone.io',
+    'pinecone_index'              => env('PINECONE_INDEX', 'rakhi-ai'),
+    'pinecone_host'               => env('PINECONE_HOST', ''),
     'pinecone_dimension'          => 768,
     'safety_keywords'             => [
         'chest pain', 'heart attack', 'unconscious',

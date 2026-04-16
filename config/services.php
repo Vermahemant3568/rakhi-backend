@@ -35,33 +35,13 @@ return [
         ],
     ],
 
-    'gemini' => [
-        'api_key' => env('GEMINI_API_KEY'),
-        'model'   => env('GEMINI_MODEL', 'gemini-1.5-flash'),
-    ],
-
-    'msg91' => [
-        'key'         => env('MSG91_KEY'),
-        'template_id' => env('MSG91_TEMPLATE_ID'),
-    ],
-
-    'razorpay' => [
-        'key_id'     => env('RAZORPAY_KEY_ID'),
-        'key_secret' => env('RAZORPAY_KEY_SECRET'),
-    ],
-
+    // ── Pinecone — env fallback if not set in Admin Panel DB ──────────────────
     'pinecone' => [
-        'api_key' => env('PINECONE_API_KEY'),
-        'host'    => env('PINECONE_HOST', 'https://rakhi-ai-vsu28xc.svc.aped-4627-b74a.pinecone.io'),
+        'api_key' => env('PINECONE_API_KEY', ''),
+        'host'    => env('PINECONE_HOST', ''),
     ],
 
-    'google' => [
-        'api_key' => env('GOOGLE_API_KEY'),
-    ],
-
-    'firebase' => [
-        'server_key' => env('FIREBASE_SERVER_KEY'),
-        'project_id' => env('FIREBASE_PROJECT_ID'),
-    ],
+    // ── All other services (Gemini, MSG91, Razorpay, Google, Firebase) ─────────
+    // Managed from Admin Panel → API Manager. Do NOT add env keys here.
 
 ];

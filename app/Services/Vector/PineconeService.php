@@ -10,12 +10,21 @@ class PineconeService
 {
     private function apiKey(): string
     {
-        return ApiConfigService::get('pinecone', 'api_key', config('services.pinecone.api_key'));
+        // 1st: Admin Panel DB, 2nd: .env fallback
+        return ApiConfigService::get('pinecone', 'api_key')
+            ?: config('services.pinecone.api_key', '');
     }
 
     private function baseUrl(): string
     {
-        return ApiConfigService::get('pinecone', 'host', config('services.pinecone.host'));
+        // 1st: Admin Panel DB, 2nd: .env fallback
+        return ApiConfigService::get('pinecone', 'host')
+            ?: config('services.pinecone.host', '');
+    }
+
+    private function isConfigured(): bool
+    {
+        return !empty($this->apiKey()) && !empty($this->baseUrl());
     }
 
     private function headers(): array
@@ -32,6 +41,11 @@ class PineconeService
         array $vector,
         array $metadata = []
     ): bool {
+        if (!$this->isConfigured()) {
+            Log::warning('Pinecone upsert skipped — api_key or host not configured.');
+            return false;
+        }
+
         $response = Http::withHeaders($this->headers())
             ->post("{$this->baseUrl()}/vectors/upsert", [
                 'namespace' => $namespace,
@@ -56,6 +70,11 @@ class PineconeService
         int $topK = 5,
         array $filter = []
     ): array {
+        if (!$this->isConfigured()) {
+            Log::warning('Pinecone query skipped — api_key or host not configured.');
+            return [];
+        }
+
         $body = [
             'namespace'       => $namespace,
             'vector'          => $vector,
@@ -80,6 +99,11 @@ class PineconeService
 
     public function delete(string $namespace, string $id): bool
     {
+        if (!$this->isConfigured()) {
+            Log::warning('Pinecone delete skipped — api_key or host not configured.');
+            return false;
+        }
+
         $response = Http::withHeaders($this->headers())
             ->post("{$this->baseUrl()}/vectors/delete", [
                 'namespace' => $namespace,
