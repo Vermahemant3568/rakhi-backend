@@ -57,7 +57,10 @@ class PineconeService
             ]);
 
         if ($response->failed()) {
-            Log::error('Pinecone upsert failed: ' . $response->body());
+            Log::error('Pinecone upsert failed: ' . $response->body(), [
+                'host'    => $this->baseUrl(),
+                'api_key' => substr($this->apiKey(), 0, 10) . '...',
+            ]);
             return false;
         }
 
