@@ -6,8 +6,10 @@ use App\Models\LlmConfig;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
-class ChatGPTService
+class OpenRouterService
 {
+    private const BASE_URL = 'https://openrouter.ai/api/v1/chat/completions';
+
     private function decryptKey(string $key): string
     {
         try {
@@ -19,12 +21,12 @@ class ChatGPTService
 
     private function getConfig(): LlmConfig
     {
-        $config = LlmConfig::where('provider', 'chatgpt')
+        $config = LlmConfig::where('provider', 'openrouter')
                            ->where('is_active', 1)
                            ->first();
 
         if (!$config) {
-            throw new \Exception('ChatGPT LLM config not found. Please activate it from admin panel.');
+            throw new \Exception('OpenRouter LLM config not found. Please activate it from admin panel.');
         }
 
         return $config;
@@ -34,7 +36,8 @@ class ChatGPTService
     {
         $config = $this->getConfig();
         $apiKey = $this->decryptKey($config->api_key);
-        $model  = $config->model_name ?? 'gpt-4o';
+        // Default to a free/cheap model — admin can override via model_name
+        $model  = $config->model_name ?? 'google/gemini-2.0-flash-exp:free';
 
         $messages = [];
 
@@ -53,34 +56,28 @@ class ChatGPTService
         $response = Http::withHeaders([
             'Authorization' => 'Bearer ' . $apiKey,
             'Content-Type'  => 'application/json',
-        ])->timeout(25)->post('https://api.openai.com/v1/chat/completions', [
+            'HTTP-Referer'  => config('app.url', 'https://rakhi.ai'),
+            'X-Title'       => 'Rakhi Health Coach',
+        ])->timeout(30)->post(self::BASE_URL, [
             'model'       => $model,
             'messages'    => $messages,
-            'max_tokens'  => $config->max_tokens ?? 220,
+            'max_tokens'  => $config->max_tokens ?? 300,
             'temperature' => (float) ($config->temperature ?? 0.65),
             'top_p'       => (float) ($config->top_p ?? 0.85),
         ]);
 
         if ($response->failed()) {
-            Log::error('ChatGPT API failed: ' . $response->body());
-            throw new \Exception('ChatGPT API error');
+            Log::error('OpenRouter API failed: HTTP ' . $response->status() . ' | ' . $response->body());
+            throw new \Exception('OpenRouter API error: HTTP ' . $response->status());
         }
 
-        return $response->json('choices.0.message.content') ?? '';
-    }
+        $text = $response->json('choices.0.message.content') ?? '';
 
-    public function embed(string $text): array
-    {
-        $config = $this->getConfig();
-        $apiKey = $this->decryptKey($config->api_key);
+        if (empty($text)) {
+            Log::warning('OpenRouter returned empty content. Body: ' . $response->body());
+            throw new \Exception('OpenRouter returned empty response');
+        }
 
-        $response = Http::withHeaders([
-            'Authorization' => 'Bearer ' . $apiKey,
-        ])->post('https://api.openai.com/v1/embeddings', [
-            'model' => 'text-embedding-3-small',
-            'input' => $text,
-        ]);
-
-        return $response->json('data.0.embedding') ?? [];
+        return $text;
     }
 }

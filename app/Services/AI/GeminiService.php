@@ -37,7 +37,7 @@ class GeminiService
         $model  = $config->model_name ?? 'gemini-2.0-flash-lite';
 
         $contents = [];
-        foreach (array_slice($history, -6) as $msg) {
+        foreach (array_slice($history, -20) as $msg) {
             $contents[] = [
                 'role'  => $msg['role'] === 'rakhi' ? 'model' : 'user',
                 'parts' => [['text' => $msg['message']]]
@@ -57,36 +57,24 @@ class GeminiService
             ],
         ];
 
-        // Retry up to 2 times with backoff for 429/503
-        $attempts = 2;
-        $delay    = 3;
+        $response = Http::timeout(30)->post(
+            "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$apiKey}",
+            $payload
+        );
 
-        for ($i = 0; $i < $attempts; $i++) {
-            $response = Http::timeout(12)->post(
-                "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$apiKey}",
-                $payload
-            );
-
-            if ($response->successful()) {
-                $text = $response->json('candidates.0.content.parts.0.text') ?? '';
-                if (!empty($text)) {
-                    return $text;
-                }
+        if ($response->successful()) {
+            $text = $response->json('candidates.0.content.parts.0.text') ?? '';
+            if (!empty($text)) {
+                return $text;
             }
-
-            $status = $response->status();
-
-            if (in_array($status, [429, 503]) && $i < $attempts - 1) {
-                Log::warning("Gemini {$status} on attempt " . ($i + 1) . ", retrying in {$delay}s...");
-                sleep($delay);
-                continue;
-            }
-
-            Log::error('Gemini API failed: ' . $response->body());
-            throw new \Exception('Gemini API error: HTTP ' . $status);
+            // Successful HTTP but empty content — safety block or empty candidates
+            $finishReason = $response->json('candidates.0.finishReason') ?? 'UNKNOWN';
+            Log::warning('Gemini returned empty text. finishReason: ' . $finishReason . ' | body: ' . $response->body());
+            throw new \Exception('Gemini returned empty response (finishReason: ' . $finishReason . ')');
         }
 
-        throw new \Exception('Gemini API error: all retries exhausted');
+        Log::error('Gemini API failed: HTTP ' . $response->status() . ' | ' . $response->body());
+        throw new \Exception('Gemini API error: HTTP ' . $response->status());
     }
 
     public function analyzeImage(
@@ -114,7 +102,11 @@ class GeminiService
             ]
         );
 
-        return $response->json('candidates.0.content.parts.0.text') ?? '';
+        $text = $response->json('candidates.0.content.parts.0.text') ?? '';
+        if (empty($text)) {
+            Log::error('Gemini analyzeImage failed: HTTP ' . $response->status() . ' | ' . $response->body());
+        }
+        return $text;
     }
 
     public function embed(string $text): array
@@ -122,7 +114,7 @@ class GeminiService
         $config = $this->getConfig(); // throws if not configured
         $apiKey = $this->decryptKey($config->api_key);
 
-        $response = Http::post(
+        $response = Http::timeout(15)->post(
             "https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key={$apiKey}",
             [
                 'model'   => 'models/gemini-embedding-001',

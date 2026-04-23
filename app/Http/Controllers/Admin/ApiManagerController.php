@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\ApiService;
 use App\Models\LlmConfig;
 use App\Services\ApiConfigService;
+use App\Services\AI\LLMRouter;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
@@ -88,6 +89,8 @@ class ApiManagerController extends Controller
             'pinecone'                 => $this->testPinecone($apiService),
             'razorpay'                 => $this->testRazorpay($apiService),
             'firebase'                 => $this->testFirebase($apiService),
+            'otp_mode'                 => $this->testOtpMode($apiService),
+            'pusher'                   => $this->testPusher($apiService),
             default                    => ['success' => false, 'message' => 'Unknown service'],
         };
 
@@ -160,25 +163,162 @@ class ApiManagerController extends Controller
 
     private function testGoogle(ApiService $apiService): array
     {
-        // TODO: implement Google API ping
-        return ['success' => true, 'message' => 'Google service reachable'];
+        $apiKey = $apiService->config['api_key'] ?? '';
+
+        if (empty($apiKey)) {
+            return ['success' => false, 'message' => 'Google API Key is required.'];
+        }
+
+        try {
+            // Hit a lightweight Google API endpoint to validate the key
+            $response = Http::timeout(8)->get(
+                'https://texttospeech.googleapis.com/v1/voices?key=' . $apiKey
+            );
+
+            if ($response->successful()) {
+                return ['success' => true, 'message' => 'Google API key is valid and connected.'];
+            }
+
+            if ($response->status() === 400 || $response->status() === 403) {
+                return ['success' => false, 'message' => 'Invalid Google API Key or API not enabled.'];
+            }
+
+            return ['success' => false, 'message' => 'Google API returned HTTP ' . $response->status()];
+        } catch (\Exception $e) {
+            return ['success' => false, 'message' => 'Could not reach Google API: ' . $e->getMessage()];
+        }
+    }
+
+    private function testPusher(ApiService $apiService): array
+    {
+        $appId     = $apiService->config['app_id'] ?? '';
+        $appKey    = $apiService->config['app_key'] ?? '';
+        $appSecret = $apiService->config['app_secret'] ?? '';
+        $cluster   = $apiService->config['cluster'] ?? 'ap2';
+
+        if (empty($appId) || empty($appKey) || empty($appSecret)) {
+            return ['success' => false, 'message' => 'Pusher App ID, App Key, and App Secret are all required.'];
+        }
+
+        if ($appKey === 'your_pusher_app_key') {
+            return ['success' => false, 'message' => 'Pusher credentials are still placeholders. Please update with real values.'];
+        }
+
+        try {
+            $timestamp = time();
+            $path      = "/apps/{$appId}/channels";
+            $params    = "auth_key={$appKey}&auth_timestamp={$timestamp}&auth_version=1.0";
+            $signature = hash_hmac('sha256', "GET\n{$path}\n{$params}", $appSecret);
+
+            $response = Http::timeout(8)->get(
+                "https://api-{$cluster}.pusher.com{$path}?{$params}&auth_signature={$signature}"
+            );
+
+            if ($response->successful()) {
+                return ['success' => true, 'message' => 'Pusher connected successfully.'];
+            }
+
+            if ($response->status() === 401 || $response->status() === 403) {
+                return ['success' => false, 'message' => 'Invalid Pusher credentials.'];
+            }
+
+            return ['success' => false, 'message' => 'Pusher returned HTTP ' . $response->status()];
+        } catch (\Exception $e) {
+            return ['success' => false, 'message' => 'Could not reach Pusher: ' . $e->getMessage()];
+        }
     }
 
     private function testPinecone(ApiService $apiService): array
     {
-        // TODO: implement Pinecone index stats check
-        return ['success' => true, 'message' => 'Pinecone reachable'];
+        $apiKey = $apiService->config['api_key'] ?? '';
+        $host   = $apiService->config['host'] ?? '';
+
+        if (empty($apiKey) || empty($host)) {
+            return ['success' => false, 'message' => 'Pinecone API Key and Host URL are required.'];
+        }
+
+        try {
+            $response = Http::withHeaders([
+                'Api-Key'      => $apiKey,
+                'Content-Type' => 'application/json',
+            ])->timeout(8)->get(rtrim($host, '/') . '/describe_index_stats');
+
+            if ($response->successful()) {
+                $stats = $response->json();
+                $vectorCount = $stats['totalVectorCount'] ?? $stats['namespaces'] ?? 'N/A';
+                return ['success' => true, 'message' => 'Pinecone connected successfully. Index is reachable.'];
+            }
+
+            if ($response->status() === 401 || $response->status() === 403) {
+                return ['success' => false, 'message' => 'Invalid Pinecone API Key or unauthorized.'];
+            }
+
+            return ['success' => false, 'message' => 'Pinecone returned HTTP ' . $response->status() . '. Check Host URL.'];
+        } catch (\Exception $e) {
+            Log::error('Pinecone test failed: ' . $e->getMessage());
+            return ['success' => false, 'message' => 'Could not reach Pinecone. Check Host URL and API Key.'];
+        }
     }
 
     private function testRazorpay(ApiService $apiService): array
     {
-        // TODO: implement Razorpay API key validation
-        return ['success' => true, 'message' => 'Razorpay reachable'];
+        $keyId     = $apiService->config['key_id'] ?? '';
+        $keySecret = $apiService->config['key_secret'] ?? '';
+
+        if (empty($keyId) || empty($keySecret)) {
+            return ['success' => false, 'message' => 'Razorpay Key ID and Key Secret are required.'];
+        }
+
+        try {
+            $response = Http::withBasicAuth($keyId, $keySecret)
+                ->timeout(8)
+                ->get('https://api.razorpay.com/v1/payments?count=1');
+
+            if ($response->successful()) {
+                return ['success' => true, 'message' => 'Razorpay connected successfully.'];
+            }
+
+            if ($response->status() === 401) {
+                return ['success' => false, 'message' => 'Invalid Razorpay credentials.'];
+            }
+
+            return ['success' => false, 'message' => 'Razorpay returned HTTP ' . $response->status()];
+        } catch (\Exception $e) {
+            return ['success' => false, 'message' => 'Could not reach Razorpay: ' . $e->getMessage()];
+        }
     }
 
     private function testFirebase(ApiService $apiService): array
     {
-        return ['success' => true, 'message' => 'Firebase reachable'];
+        $serverKey = $apiService->config['server_key'] ?? '';
+
+        if (empty($serverKey)) {
+            return ['success' => false, 'message' => 'Firebase Server Key is required.'];
+        }
+
+        // Validate key format — FCM legacy keys start with AAAA, v1 tokens are JWTs
+        if (strlen($serverKey) < 20) {
+            return ['success' => false, 'message' => 'Firebase Server Key appears invalid (too short).'];
+        }
+
+        $projectId = $apiService->config['project_id'] ?? '';
+        if (empty($projectId)) {
+            return [
+                'success' => true,
+                'message' => 'Firebase key is set. Note: Add Project ID to use FCM v1 API (recommended). Currently using legacy FCM.',
+            ];
+        }
+
+        return ['success' => true, 'message' => 'Firebase configured with project: ' . $projectId];
+    }
+
+    private function testOtpMode(ApiService $apiService): array
+    {
+        $mode = strtoupper($apiService->config['mode'] ?? 'TEST');
+        if (!in_array($mode, ['LIVE', 'TEST'])) {
+            return ['success' => false, 'message' => 'Invalid OTP mode. Use LIVE or TEST.'];
+        }
+        return ['success' => true, 'message' => "OTP mode is set to {$mode}."];
     }
 
     // ── LLM Config Methods ────────────────────────
@@ -201,7 +341,7 @@ class ApiManagerController extends Controller
     public function llmStore(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'provider'    => 'required|in:gemini,chatgpt',
+            'provider'    => 'required|in:gemini,chatgpt,openrouter',
             'api_key'     => 'required|string',
             'model_name'  => 'required|string|max:100',
             'max_tokens'  => 'nullable|integer|min:100|max:8000',
@@ -224,7 +364,7 @@ class ApiManagerController extends Controller
         $config = LlmConfig::findOrFail($id);
 
         $data = $request->validate([
-            'provider'    => 'sometimes|in:gemini,chatgpt',
+            'provider'    => 'sometimes|in:gemini,chatgpt,openrouter',
             'api_key'     => 'sometimes|string',
             'model_name'  => 'sometimes|string|max:100',
             'max_tokens'  => 'sometimes|integer|min:100|max:8000',
@@ -237,6 +377,9 @@ class ApiManagerController extends Controller
         }
 
         $config->update($data);
+
+        // Clear LLM router cache so updated key is picked up immediately
+        LLMRouter::clearCache();
 
         $fresh = $config->fresh();
         $result = $fresh->toArray();
@@ -252,6 +395,9 @@ class ApiManagerController extends Controller
 
         // Activate selected
         LlmConfig::findOrFail($id)->update(['is_active' => 1]);
+
+        // Clear LLM router cache so new config is picked up immediately
+        LLMRouter::clearCache();
 
         return response()->json(['success' => true, 'message' => 'LLM activated']);
     }
@@ -296,6 +442,13 @@ class ApiManagerController extends Controller
             ApiConfigService::forget($serviceName);
         } catch (\Exception $e) {
             Log::warning('Cache clear failed (non-fatal): ' . $e->getMessage());
+        }
+
+        // For Pusher: also clear the broadcasting config cache if it exists
+        if ($serviceName === 'pusher') {
+            try {
+                cache()->forget('api_config_pusher');
+            } catch (\Exception $e) {}
         }
     }
 }

@@ -59,13 +59,15 @@ class PDFService
     // Generate consultation report PDF
     public function generateConsultationReport(
         User $user,
-        array $report
+        array $report,
+        array $memory = []
     ): string {
         return $this->generate(
             view: 'pdfs.consultation-report',
             data: [
                 'user'   => $user,
                 'report' => $report,
+                'memory' => $memory,
                 'date'   => now()->format('d M Y'),
             ],
             filename: "consultation-{$user->id}-" . time() . ".pdf"

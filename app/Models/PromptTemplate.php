@@ -14,11 +14,12 @@ class PromptTemplate extends Model
     protected $casts = [
         'variables' => 'array',
         'is_active' => 'boolean',
+        'coach_id'  => 'integer',
     ];
 
     public function coach()
     {
-        return $this->belongsTo(Coach::class);
+        return $this->belongsTo(Coach::class)->withDefault(['name' => 'General']);
     }
 
     public function language()

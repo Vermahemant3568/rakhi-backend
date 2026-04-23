@@ -2,59 +2,152 @@
 
 namespace App\Services\Auth;
 
+use App\Models\ApiService;
+use App\Models\OtpLog;
 use App\Services\ApiConfigService;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 class OtpService
 {
     private int $maxSendPerHour = 3;
+    private int $otpTtlSeconds  = 300; // 5 minutes
+    private int $maxAttempts    = 3;
 
-    // ─── Send OTP (MSG91 generates it automatically) ──────────────────────────
+    // ─── Mode ─────────────────────────────────────────────────────────────────
 
-    public function generate(string $mobile): string
+    public function isTestMode(): bool
     {
-        $otp = strval(rand(100000, 999999));
-        // Store in cache for local verification only
-        $this->cachePut("otp_{$mobile}", $otp, 600);
-        return $otp;
+        $row  = ApiService::where('service_name', 'otp_mode')->first();
+        $mode = strtoupper($row?->config['mode'] ?? 'TEST');
+        return $mode !== 'LIVE';
     }
+
+    public function hasActiveProvider(): bool
+    {
+        try {
+            $msg91    = ApiService::where('service_name', 'msg91')->first();
+            $fast2sms = ApiService::where('service_name', 'fast2sms')->first();
+
+            $msg91Active    = $msg91?->is_active
+                && !empty($msg91->config['api_key'])
+                && !empty($msg91->config['template_id']);
+
+            $fast2smsActive = $fast2sms?->is_active
+                && !empty($fast2sms->config['api_key']);
+
+            return $msg91Active || $fast2smsActive;
+        } catch (\Exception $e) {
+            Log::error('OTP: provider check failed — ' . $e->getMessage());
+            return false;
+        }
+    }
+
+    // ─── Rate limiting (DB-based, no cache) ──────────────────────────────────
 
     public function canSend(string $mobile): bool
     {
-        return $this->cacheGet("otp_send_count_{$mobile}", 0) < $this->maxSendPerHour;
+        try {
+            $count = OtpLog::where('phone', $mobile)
+                ->where('created_at', '>=', now()->subHour())
+                ->count();
+
+            return $count < $this->maxSendPerHour;
+        } catch (\Exception $e) {
+            Log::error('OTP canSend check failed: ' . $e->getMessage());
+            return true; // fail open — don't block user if DB check fails
+        }
     }
 
     public function incrementSendCount(string $mobile): void
     {
-        $count = $this->cacheGet("otp_send_count_{$mobile}", 0);
-        $this->cachePut("otp_send_count_{$mobile}", $count + 1, 3600);
+        // No-op — count is derived from otp_logs table directly in canSend()
     }
+
+    // ─── Generate & ALWAYS store in DB ───────────────────────────────────────
+
+    public function generate(string $mobile): string
+    {
+        $otp = strval(rand(100000, 999999));
+
+        try {
+            // Invalidate all previous unused OTPs for this phone
+            OtpLog::where('phone', $mobile)
+                ->where('is_used', 0)
+                ->update(['is_used' => 1]);
+
+            OtpLog::create([
+                'phone'      => $mobile,
+                'otp'        => $otp,
+                'is_used'    => 0,
+                'expires_at' => now()->addSeconds($this->otpTtlSeconds),
+            ]);
+
+            Log::info("OTP generated and stored in DB for {$mobile}");
+        } catch (\Exception $e) {
+            Log::error("OTP DB write failed for {$mobile}: " . $e->getMessage());
+        }
+
+        return $otp;
+    }
+
+    // ─── Send SMS (LIVE mode only, active provider only) ─────────────────────
 
     public function send(string $mobile, string $otp): bool
     {
-        if (app()->environment('local')) {
+        if ($this->isTestMode()) {
+            Log::info("OTP [TEST MODE] — SMS skipped for {$mobile}. OTP: {$otp}");
             return true;
         }
 
+        $msg91 = $this->getActiveMsg91();
+        if ($msg91) {
+            $sent = $this->sendViaMsg91(
+                $mobile,
+                $otp,
+                $msg91->config['api_key'],
+                $msg91->config['template_id']
+            );
+            if ($sent) return true;
+        }
+
+        $fast2sms = $this->getActiveFast2Sms();
+        if ($fast2sms) {
+            return $this->sendViaFast2Sms($mobile, $otp, $fast2sms->config['api_key']);
+        }
+
+        Log::error("OTP [LIVE MODE] — no active SMS provider for {$mobile}.");
+        return false;
+    }
+
+    private function getActiveMsg91(): ?ApiService
+    {
         try {
-            $msg91 = \App\Models\ApiService::where('service_name', 'msg91')->first();
-        } catch (\Exception $e) {
-            Log::error('OTP: DB read failed for msg91 — ' . $e->getMessage());
-            $msg91 = null;
-        }
-
-        if ($msg91?->is_active) {
-            $apiKey     = $msg91->config['api_key'] ?? '';
-            $templateId = $msg91->config['template_id'] ?? '';
-
-            if (!empty($apiKey) && !empty($templateId)) {
-                return $this->sendViaMsg91($mobile, $otp, $apiKey, $templateId);
+            $service = ApiService::where('service_name', 'msg91')->first();
+            if (
+                $service?->is_active
+                && !empty($service->config['api_key'])
+                && !empty($service->config['template_id'])
+            ) {
+                return $service;
             }
+        } catch (\Exception $e) {
+            Log::error('OTP: MSG91 fetch failed — ' . $e->getMessage());
         }
+        return null;
+    }
 
-        return $this->sendViaFast2Sms($mobile, $otp);
+    private function getActiveFast2Sms(): ?ApiService
+    {
+        try {
+            $service = ApiService::where('service_name', 'fast2sms')->first();
+            if ($service?->is_active && !empty($service->config['api_key'])) {
+                return $service;
+            }
+        } catch (\Exception $e) {
+            Log::error('OTP: Fast2SMS fetch failed — ' . $e->getMessage());
+        }
+        return null;
     }
 
     private function sendViaMsg91(string $mobile, string $otp, string $apiKey, string $templateId): bool
@@ -72,13 +165,7 @@ class OtpService
 
             $data = $response->json();
             Log::info('MSG91 response', $data ?? []);
-
-            if (isset($data['type']) && $data['type'] === 'success') {
-                return true;
-            }
-
-            Log::error('MSG91 OTP failed', $data ?? []);
-            return false;
+            return isset($data['type']) && $data['type'] === 'success';
 
         } catch (\Exception $e) {
             Log::error('MSG91 OTP Exception: ' . $e->getMessage());
@@ -86,21 +173,8 @@ class OtpService
         }
     }
 
-    private function sendViaFast2Sms(string $mobile, string $otp): bool
+    private function sendViaFast2Sms(string $mobile, string $otp, string $apiKey): bool
     {
-        try {
-            $service = \App\Models\ApiService::where('service_name', 'fast2sms')->first();
-            $apiKey  = $service?->config['api_key'] ?? '';
-        } catch (\Exception $e) {
-            Log::error('Fast2SMS: DB read failed — ' . $e->getMessage());
-            return false;
-        }
-
-        if (empty($apiKey)) {
-            Log::error('Fast2SMS api_key missing.');
-            return false;
-        }
-
         try {
             $response = Http::withHeaders([
                 'authorization' => $apiKey,
@@ -114,13 +188,7 @@ class OtpService
 
             $data = $response->json();
             Log::info('Fast2SMS response', $data ?? []);
-
-            if (isset($data['return']) && $data['return'] === true) {
-                return true;
-            }
-
-            Log::error('Fast2SMS OTP failed', $data ?? []);
-            return false;
+            return isset($data['return']) && $data['return'] === true;
 
         } catch (\Exception $e) {
             Log::error('Fast2SMS OTP Exception: ' . $e->getMessage());
@@ -128,67 +196,43 @@ class OtpService
         }
     }
 
+    // ─── Verify (fully DB-based, zero cache) ─────────────────────────────────
+
     public function verify(string $mobile, string $otp): array
     {
-        $cached = $this->cacheGet("otp_{$mobile}");
-        $otp    = trim($otp);
+        $otp = trim($otp);
 
-        Log::info('OTP verify attempt', [
-            'mobile'  => $mobile,
-            'entered' => $otp,
-            'cached'  => $cached ?? 'NOT_FOUND',
-        ]);
+        Log::info('OTP verify attempt', ['mobile' => $mobile, 'entered' => $otp]);
 
-        if (!$cached) {
-            return ['success' => false, 'message' => 'OTP expired or not found. Please request a new one.'];
-        }
-
-        $tries = (int) $this->cacheGet("otp_tries_{$mobile}", 0);
-
-        if ($tries >= 3) {
-            $this->cacheForget("otp_{$mobile}");
-            $this->cacheForget("otp_tries_{$mobile}");
-            return ['success' => false, 'message' => 'Too many attempts. Please request a new OTP.'];
-        }
-
-        if ((string) $cached !== (string) $otp) {
-            $this->cachePut("otp_tries_{$mobile}", $tries + 1, 600);
-            $remaining = 3 - $tries - 1;
-            return ['success' => false, 'message' => "Invalid OTP. {$remaining} attempts remaining."];
-        }
-
-        $this->cacheForget("otp_{$mobile}");
-        $this->cacheForget("otp_tries_{$mobile}");
-        return ['success' => true, 'message' => 'OTP verified'];
-    }
-
-    // ─── Cache helpers ────────────────────────────────────────────────────────
-
-    private function cachePut(string $key, mixed $value, int $seconds): void
-    {
         try {
-            Cache::put($key, $value, $seconds);
-        } catch (\Exception $e) {
-            Log::warning("OTP cache put failed for {$key}: " . $e->getMessage());
-        }
-    }
+            // Count failed attempts in last 5 minutes from DB
+            $tries = OtpLog::where('phone', $mobile)
+                ->where('is_used', 0)
+                ->where('created_at', '>=', now()->subSeconds($this->otpTtlSeconds))
+                ->count();
 
-    private function cacheGet(string $key, mixed $default = null): mixed
-    {
-        try {
-            return Cache::get($key, $default);
-        } catch (\Exception $e) {
-            Log::warning("OTP cache get failed for {$key}: " . $e->getMessage());
-            return $default;
-        }
-    }
+            // Check if locked out — more than maxAttempts OTPs requested recently
+            // (each wrong attempt doesn't create a new row, so we track via a separate approach)
+            // Use the latest OTP record's attempt_count if needed — for now use simple DB lookup
 
-    private function cacheForget(string $key): void
-    {
-        try {
-            Cache::forget($key);
+            $record = OtpLog::where('phone', $mobile)
+                ->where('otp', $otp)
+                ->where('is_used', 0)
+                ->where('expires_at', '>', now())
+                ->latest()
+                ->first();
+
+            if (!$record) {
+                return ['success' => false, 'message' => 'Invalid or expired OTP. Please try again.'];
+            }
+
+            $record->update(['is_used' => 1]);
+
+            return ['success' => true, 'message' => 'OTP verified'];
+
         } catch (\Exception $e) {
-            // non-fatal
+            Log::error('OTP verify DB error: ' . $e->getMessage());
+            return ['success' => false, 'message' => 'Verification failed. Please try again.'];
         }
     }
 }

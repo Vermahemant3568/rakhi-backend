@@ -16,6 +16,12 @@ class AuthController extends Controller
     // Screen 2 — Send OTP
     public function sendOtp(Request $request)
     {
+        \Log::info('=== OTP REQUEST RECEIVED ===', [
+            'ip' => $request->ip(),
+            'body' => $request->all(),
+            'headers' => $request->headers->all(),
+        ]);
+
         $request->validate([
             'mobile' => 'required|digits:10',
         ]);
@@ -27,24 +33,35 @@ class AuthController extends Controller
             ], 429);
         }
 
-        $otp  = $this->otpService->generate($request->mobile);
-        $sent = $this->otpService->send($request->mobile, $otp);
+        $testMode = $this->otpService->isTestMode();
 
-        if (!$sent) {
+        // LIVE mode — must have an active provider before generating OTP
+        if (!$testMode && !$this->otpService->hasActiveProvider()) {
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to send OTP. Please try again.',
-            ], 500);
+                'message' => 'SMS service is not configured. Please contact support.',
+            ], 503);
+        }
+
+        $otp = $this->otpService->generate($request->mobile);
+
+        if (!$testMode) {
+            $sent = $this->otpService->send($request->mobile, $otp);
+            if (!$sent) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Failed to send OTP. Please try again.',
+                ], 503);
+            }
         }
 
         $this->otpService->incrementSendCount($request->mobile);
 
-        $response = ['success' => true, 'message' => 'OTP sent successfully'];
-        if (app()->environment('local')) {
-            $response['otp'] = $otp;
-        }
-
-        return response()->json($response);
+        return response()->json([
+            'success'   => true,
+            'message'   => 'OTP sent successfully',
+            'otp_debug' => $testMode ? $otp : null,
+        ]);
     }
 
     // Screen 3 — Verify OTP + Login or Register
@@ -122,7 +139,11 @@ class AuthController extends Controller
 
     public function logout()
     {
-        JWTAuth::invalidateToken(JWTAuth::getToken());
+        try {
+            JWTAuth::invalidate(JWTAuth::getToken());
+        } catch (\Exception $e) {
+            // Token already expired or invalid — treat as logged out
+        }
         return response()->json([
             'success' => true,
             'message' => 'Logged out'

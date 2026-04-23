@@ -24,7 +24,13 @@ class SyncKnowledgeToVector implements ShouldQueue
     public function handle(PineconeService $pinecone, EmbeddingService $embedding): void
     {
         try {
-            $vector = $embedding->embed($this->knowledge->content);
+            // Embed title + content for richer semantic search (consistent with KnowledgeBaseController)
+            $vector = $embedding->embed($this->knowledge->title . ' ' . $this->knowledge->content);
+
+            if (empty($vector)) {
+                Log::warning('SyncKnowledgeToVector skipped — embedding returned empty.', ['knowledge_id' => $this->knowledge->id]);
+                return;
+            }
 
             $namespace = $this->knowledge->pinecone_namespace
                 ?? $this->knowledge->coach->pinecone_namespace
@@ -32,7 +38,7 @@ class SyncKnowledgeToVector implements ShouldQueue
 
             $vectorId = 'kb-' . $this->knowledge->id;
 
-            $pinecone->upsert(
+            $success = $pinecone->upsert(
                 namespace: $namespace,
                 id:        $vectorId,
                 vector:    $vector,
@@ -45,11 +51,13 @@ class SyncKnowledgeToVector implements ShouldQueue
                 ]
             );
 
-            $this->knowledge->update([
-                'is_synced'          => 1,
-                'pinecone_vector_id' => $vectorId,
-                'pinecone_namespace' => $namespace,
-            ]);
+            if ($success) {
+                $this->knowledge->update([
+                    'is_synced'          => 1,
+                    'pinecone_vector_id' => $vectorId,
+                    'pinecone_namespace' => $namespace,
+                ]);
+            }
 
         } catch (\Throwable $e) {
             Log::error('SyncKnowledgeToVector failed', [

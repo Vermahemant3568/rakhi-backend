@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\PromptTemplate;
+use App\Services\AI\PromptEngine;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -31,7 +32,7 @@ class PromptController extends Controller
     public function store(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'coach_id'      => 'required|exists:coaches,id',
+            'coach_id'      => 'nullable|exists:coaches,id',
             'language_id'   => 'required|exists:languages,id',
             'template_type' => 'required|string|max:100',
             'title'         => 'required|string|max:200',
@@ -47,7 +48,7 @@ class PromptController extends Controller
     public function update(Request $request, PromptTemplate $prompt): JsonResponse
     {
         $data = $request->validate([
-            'coach_id'      => 'sometimes|exists:coaches,id',
+            'coach_id'      => 'nullable|exists:coaches,id',
             'language_id'   => 'sometimes|exists:languages,id',
             'template_type' => 'sometimes|string|max:100',
             'title'         => 'sometimes|string|max:200',
@@ -59,12 +60,25 @@ class PromptController extends Controller
 
         $prompt->update($data);
 
+        // Clear cache so next request picks up the updated template
+        if ($prompt->coach_id) {
+            PromptEngine::clearTemplateCache($prompt->coach_id);
+        } else {
+            cache()->forget('prompt_template_consultation');
+        }
+
         return response()->json($prompt->fresh()->load(['coach:id,name', 'language:id,name,code']));
     }
 
     public function toggle(PromptTemplate $prompt): JsonResponse
     {
         $prompt->update(['is_active' => !$prompt->is_active]);
+
+        if ($prompt->coach_id) {
+            PromptEngine::clearTemplateCache($prompt->coach_id);
+        } else {
+            cache()->forget('prompt_template_consultation');
+        }
 
         return response()->json($prompt->fresh());
     }

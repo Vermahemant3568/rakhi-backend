@@ -10,138 +10,180 @@ class MemoryExtractorService
 {
     public function __construct(private LLMRouter $llm) {}
 
-    /**
-     * Extract structured memory facts from a user message and upsert into DB.
-     * Called after every user message — non-blocking, wrapped in try/catch.
-     */
+    // ─────────────────────────────────────────────
+    // SINGLE MESSAGE EXTRACTION
+    // ─────────────────────────────────────────────
+
     public function extractAndStore(User $user, string $userMessage): void
     {
         try {
-            $keys    = implode(', ', UserMemory::KEYS);
-            $prompt  = $this->buildExtractionPrompt($userMessage, $keys);
-            $raw     = $this->llm->chat($prompt);
-            $facts   = $this->parseJson($raw);
+            $keys   = implode(', ', UserMemory::KEYS);
+            $prompt = $this->buildExtractionPrompt($userMessage, $keys);
+
+            $raw   = $this->llm->chat($prompt);
+            $facts = $this->parseJson($raw);
 
             if (empty($facts)) return;
 
             foreach ($facts as $key => $value) {
+
                 if (!in_array($key, UserMemory::KEYS)) continue;
-                if (empty(trim((string) $value)))       continue;
+
+                $cleanValue = trim((string) $value);
+
+                // Skip useless values
+                if ($cleanValue === '' || strlen($cleanValue) < 3) continue;
 
                 UserMemory::updateOrCreate(
                     ['user_id' => $user->id, 'key' => $key],
-                    ['value'   => trim($value), 'source' => 'chat']
+                    [
+                        'value'  => $cleanValue,
+                        'source' => 'chat'
+                    ]
                 );
             }
+
         } catch (\Exception $e) {
-            Log::warning('MemoryExtractor failed (non-fatal): ' . $e->getMessage());
+            Log::warning('MemoryExtractor failed: ' . $e->getMessage());
         }
     }
 
-    /**
-     * Bulk extract from full consultation conversation — called once after consultation ends.
-     */
+    // ─────────────────────────────────────────────
+    // FULL CONVERSATION EXTRACTION
+    // ─────────────────────────────────────────────
+
     public function extractFromConversation(User $user, string $fullConversation): void
     {
         try {
             $keys   = implode(', ', UserMemory::KEYS);
             $prompt = $this->buildBulkExtractionPrompt($fullConversation, $keys);
-            $raw    = $this->llm->chat($prompt);
-            $facts  = $this->parseJson($raw);
+
+            $raw   = $this->llm->chat($prompt);
+            $facts = $this->parseJson($raw);
 
             if (empty($facts)) return;
 
             foreach ($facts as $key => $value) {
+
                 if (!in_array($key, UserMemory::KEYS)) continue;
-                if (empty(trim((string) $value)))       continue;
+
+                $cleanValue = trim((string) $value);
+
+                if ($cleanValue === '' || strlen($cleanValue) < 3) continue;
 
                 UserMemory::updateOrCreate(
                     ['user_id' => $user->id, 'key' => $key],
-                    ['value'   => trim($value), 'source' => 'consultation']
+                    [
+                        'value'  => $cleanValue,
+                        'source' => 'consultation'
+                    ]
                 );
             }
+
         } catch (\Exception $e) {
-            Log::warning('MemoryExtractor bulk failed (non-fatal): ' . $e->getMessage());
+            Log::warning('MemoryExtractor bulk failed: ' . $e->getMessage());
         }
     }
+
+    // ─────────────────────────────────────────────
+    // PROMPT (SMART + HINGLISH AWARE 🔥)
+    // ─────────────────────────────────────────────
 
     private function buildExtractionPrompt(string $message, string $keys): string
     {
         return <<<PROMPT
-You are a memory extraction system for a health coach AI.
+You extract structured user facts for a health AI.
 
-Analyze this single user message and extract ONLY facts that are clearly stated.
-Do NOT guess or infer. If nothing relevant is mentioned, return {}.
+User may speak in Hinglish (Hindi + English mix). Understand both.
 
-Valid memory keys: {$keys}
+Extract ONLY clearly stated facts. Do NOT guess.
 
-Key definitions:
-- health_condition: any disease, condition, or diagnosis (e.g. "Type 2 diabetes", "PCOS", "thyroid")
-- medications: any medicine, insulin, or supplement mentioned (e.g. "metformin", "insulin", "lantus")
-- diet_habit: what they eat regularly (e.g. "eats outside daily", "skips breakfast")
-- activity_level: exercise or movement habits
-- sleep_pattern: sleep hours and quality
-- stress_level: stress triggers or intensity
-- main_goal: what they want to achieve
-- food_preference: veg/non-veg, likes/dislikes
-- lifestyle: work schedule, daily routine
-- challenges: what makes health management hard for them
+Valid keys: {$keys}
 
-User message: "{$message}"
+Understand real-life language:
+- "raat ko late khata hoon" → late night eating
+- "bahar ka khata hoon" → eats outside food
+- "office pressure hai" → work stress
+- "thak jata hoon" → fatigue / low energy
+- "type 1 hai mujhe" or "t1d" or "insulin pe hoon" → diabetes_type: type1
+- "type 2 hai" or "t2d" or "metformin leta hoon" → diabetes_type: type2
+- "gestational diabetes" or "pregnancy mein sugar" → diabetes_type: gestational
+- "prediabetes" or "borderline sugar" or "pre-diabetic" → diabetes_type: prediabetes
+
+For diabetes_type: only store one of: type1, type2, gestational, prediabetes
+
+Message:
+"{$message}"
 
 Rules:
-- Extract only what is explicitly mentioned
-- Values must be short, factual phrases (max 15 words)
-- Return ONLY valid JSON like: {"health_condition": "Type 1 diabetes", "medications": "insulin injections daily"}
-- If nothing relevant, return: {}
-- No explanation, no extra text
+- Only extract what user clearly said
+- Keep values short (max 12 words)
+- No full sentences
+- No assumptions
+
+Return ONLY JSON:
+{"diet_habit":"eats outside daily"}
+
+If nothing → {}
 PROMPT;
     }
 
     private function buildBulkExtractionPrompt(string $conversation, string $keys): string
     {
         return <<<PROMPT
-You are a memory extraction system for a health coach AI.
+You extract structured memory from a full health consultation.
 
-Read this full consultation conversation and extract all important user facts.
+User may speak in Hinglish.
 
-Valid memory keys: {$keys}
+Focus ONLY on user messages.
+
+Valid keys: {$keys}
 
 Conversation:
 {$conversation}
 
 Rules:
-- Extract only what the USER explicitly said (not the coach)
-- Values must be short, factual phrases (max 20 words each)
-- If user corrected themselves, use the latest version
-- Return ONLY valid JSON like:
-  {
-    "health_condition": "Type 2 diabetes",
-    "diet_habit": "eats outside daily, mostly rice and dal",
-    "activity_level": "walks 20 minutes occasionally",
-    "sleep_pattern": "6 hours, wakes up tired",
-    "stress_level": "high, work pressure",
-    "main_goal": "control blood sugar and lose weight",
-    "food_preference": "vegetarian",
-    "lifestyle": "desk job, very busy",
-    "challenges": "no time to cook, eats late at night"
-  }
-- Only include keys where you found clear information
-- No explanation, no extra text
+- Extract only clear facts (no guessing)
+- Prefer latest info if conflict
+- Keep values short (max 15 words)
+- Capture patterns (late eating, low activity, stress etc.)
+- For diabetes_type: detect from signals like "type 1", "t1d", "insulin dependent", "type 2", "t2d", "metformin", "gestational", "prediabetes"
+- diabetes_type value must be one of: type1, type2, gestational, prediabetes
+
+Return ONLY JSON like:
+{
+ "diabetes_type":"type2",
+ "diet_habit":"late night eating, outside food",
+ "activity_level":"very low, mostly sitting",
+ "sleep_pattern":"5-6 hours, poor sleep",
+ "stress_level":"high work pressure"
+}
+
+No explanation. No extra text.
 PROMPT;
     }
 
+    // ─────────────────────────────────────────────
+    // JSON CLEANER (MORE ROBUST 🔥)
+    // ─────────────────────────────────────────────
+
     private function parseJson(string $raw): array
     {
+        if (empty($raw)) return [];
+
+        // Remove markdown
         $clean = preg_replace('/```json|```/', '', $raw);
         $clean = trim($clean);
 
+        // Extract JSON safely
         $start = strpos($clean, '{');
         $end   = strrpos($clean, '}');
 
         if ($start === false || $end === false) return [];
 
-        $decoded = json_decode(substr($clean, $start, $end - $start + 1), true);
+        $json = substr($clean, $start, $end - $start + 1);
+
+        $decoded = json_decode($json, true);
 
         return is_array($decoded) ? $decoded : [];
     }

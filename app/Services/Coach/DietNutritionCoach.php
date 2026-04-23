@@ -89,7 +89,7 @@ class DietNutritionCoach extends BaseCoach
         // ── User physical stats ───────────────────────────────────
         $context['weight']  = $user->weight  ?? null;
         $context['height']  = $user->height  ?? null;
-        $context['age']     = $user->age() > 0 ? $user->age() : null;
+        $context['age']     = $user->getAge() > 0 ? $user->getAge() : null;
         $context['gender']  = $user->gender  ?? null;
 
         return $context;

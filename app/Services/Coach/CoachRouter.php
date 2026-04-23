@@ -10,21 +10,20 @@ use App\Models\UserCoach;
 class CoachRouter
 {
     private array $goalCoachMap = [
-        'diabetes'          => 'diabetes-coach',
-        'weight-loss'       => 'weight-loss-coach',
-        'pcos-pcod'         => 'pcos-thyroid-coach',
-        'thyroid'           => 'pcos-thyroid-coach',
-        'irregular-periods' => 'pcos-thyroid-coach',
-        'fitness'           => 'fitness-coach',
-        'diet'              => 'diet-nutrition-coach',
-        'mental-wellness'   => 'mental-wellness-coach',
-        'stress'            => 'stress-coach',
-        'sleep'             => 'sleep-coach',
-        'energy'            => 'energy-coach',
-        'pregnancy'         => 'pregnancy-coach',
-        'postpartum'        => 'postpartum-coach',
-        'habit'             => 'habit-coach',
-        'vision'            => 'vision-coach',
+        // Keys must match exactly the slug column in the goals table
+        'manage-diabetes'      => 'diabetes-coach',
+        'lose-weight'          => 'weight-loss-coach',
+        'manage-pcos'          => 'pcos-thyroid-coach',
+        'thyroid-management'   => 'pcos-thyroid-coach',
+        'build-muscle'         => 'fitness-coach',
+        'eat-healthier'        => 'diet-nutrition-coach',
+        'improve-mental-health'=> 'mental-wellness-coach',
+        'reduce-stress'        => 'stress-coach',
+        'improve-sleep'        => 'sleep-coach',
+        'boost-energy'         => 'energy-coach',
+        'pregnancy-wellness'   => 'pregnancy-coach',
+        'postpartum-recovery'  => 'postpartum-coach',
+        'build-healthy-habits' => 'habit-coach',
     ];
 
     // Route messages to the right coach based on keywords
@@ -32,6 +31,10 @@ class CoachRouter
         'diabetes-coach'        => [
             'diabetes', 'blood sugar', 'sugar level', 'insulin', 'hba1c', 'glucose',
             'type 1', 'type 2', 'diabetic', 'sugar', 'madhumeh',
+            // Hinglish symptom keywords that are common diabetes complaints
+            'pero me dard', 'pair me dard', 'foot pain', 'leg pain', 'pairon mein',
+            'haath me dard', 'numb', 'tingling', 'burning feet', 'jalan pero',
+            'zyada pyaas', 'baar baar peeshab', 'baar baar peshab', 'blurry vision',
         ],
         'diet-nutrition-coach'  => [
             'diet', 'nutrition', 'calories', 'protein', 'carbs', 'fat', 'vitamin',
@@ -145,6 +148,7 @@ class CoachRouter
             'stress-coach'          => \App\Services\Coach\StressCoach::class,
             'habit-coach'           => \App\Services\Coach\HabitCoach::class,
             'vision-coach'          => \App\Services\Coach\VisionCoach::class,
+            'consultation-coach'    => \App\Services\Coach\ConsultationCoach::class,
             default                 => \App\Services\Coach\DietNutritionCoach::class,
         };
     }
@@ -159,23 +163,25 @@ class CoachRouter
 
     public function resolveCoach(User $user, string $message): Coach
     {
-        // Try to match message to a specific coach by keywords
-        $messageLower = strtolower($message);
-
-        foreach ($this->messageCoachMap as $coachSlug => $keywords) {
-            foreach ($keywords as $keyword) {
-                if (str_contains($messageLower, $keyword)) {
-                    $coach = Coach::where('slug', $coachSlug)->where('is_active', 1)->first();
-                    if ($coach) return $coach;
-                }
-            }
-        }
-
-        // Fall back to user's primary coach
+        // Always use the user's primary coach.
+        // The primary coach is set during onboarding based on the user's goal
+        // (e.g. pregnancy goal → PregnancyCoach is primary).
+        // Keyword-based rerouting is intentionally removed — it caused the wrong
+        // coach (with no goal context) to handle messages for specialised users.
         $primaryCoach = $user->primaryCoach();
         if ($primaryCoach) return $primaryCoach;
 
-        // Last resort fallback
+        // Fallback: derive coach from user's first active goal
+        $user->loadMissing(['goals']);
+        $firstGoalSlug = $user->goals->first()?->slug;
+        if ($firstGoalSlug && isset($this->goalCoachMap[$firstGoalSlug])) {
+            $coach = Coach::where('slug', $this->goalCoachMap[$firstGoalSlug])
+                ->where('is_active', 1)
+                ->first();
+            if ($coach) return $coach;
+        }
+
+        // Last resort
         return Coach::where('slug', 'diet-nutrition-coach')->where('is_active', 1)->first()
             ?? Coach::where('is_active', 1)->first()
             ?? Coach::first();

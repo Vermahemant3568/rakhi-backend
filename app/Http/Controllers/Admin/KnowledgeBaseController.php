@@ -79,11 +79,18 @@ class KnowledgeBaseController extends Controller
     private function syncToPinecone(KnowledgeBase $kb): void
     {
         try {
+            // Embed title + content for richer semantic search
             $vector    = $this->embedder->embed($kb->title . ' ' . $kb->content);
+
+            if (empty($vector)) {
+                Log::warning('Pinecone sync skipped — embedding returned empty (LLM or Pinecone not configured).', ['kb_id' => $kb->id]);
+                return;
+            }
+
             $namespace = $kb->pinecone_namespace ?? $kb->coach->pinecone_namespace;
             $vectorId  = 'kb-' . $kb->id;
 
-            $this->pinecone->upsert(
+            $success = $this->pinecone->upsert(
                 namespace: $namespace,
                 id:        $vectorId,
                 vector:    $vector,
@@ -96,13 +103,39 @@ class KnowledgeBaseController extends Controller
                 ]
             );
 
-            $kb->update([
-                'is_synced'          => 1,
-                'pinecone_vector_id' => $vectorId,
-                'pinecone_namespace' => $namespace,
-            ]);
+            if ($success) {
+                $kb->update([
+                    'is_synced'          => 1,
+                    'pinecone_vector_id' => $vectorId,
+                    'pinecone_namespace' => $namespace,
+                ]);
+            }
         } catch (\Throwable $e) {
             Log::error('Pinecone sync failed: ' . $e->getMessage());
         }
+    }
+
+    public function syncAll()
+    {
+        $unsynced = KnowledgeBase::where('is_synced', 0)->orWhereNull('pinecone_vector_id')->get();
+
+        $synced = 0;
+        $failed = 0;
+
+        foreach ($unsynced as $kb) {
+            try {
+                $this->syncToPinecone($kb->fresh());
+                $synced++;
+            } catch (\Throwable $e) {
+                $failed++;
+                Log::error('Bulk sync failed for kb ' . $kb->id . ': ' . $e->getMessage());
+            }
+        }
+
+        return response()->json([
+            'message' => "Sync complete. Synced: {$synced}, Failed: {$failed}",
+            'synced'  => $synced,
+            'failed'  => $failed,
+        ]);
     }
 }

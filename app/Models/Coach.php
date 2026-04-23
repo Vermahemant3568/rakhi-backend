@@ -13,7 +13,17 @@ class Coach extends Model
     ];
 
     protected $casts = [
-        'is_active'      => 'boolean',
+        'is_active'       => 'boolean',
         'is_launch_coach' => 'boolean',
     ];
+
+    public function userCoaches()
+    {
+        return $this->hasMany(\App\Models\UserCoach::class);
+    }
+
+    public function promptTemplates()
+    {
+        return $this->hasMany(\App\Models\PromptTemplate::class);
+    }
 }

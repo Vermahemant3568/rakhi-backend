@@ -200,10 +200,10 @@
     <div class="header-sub">Here's a full summary of your health consultation with Rakhi AI.</div>
     <table class="header-meta-table">
       <tr>
-        <td><strong>{{ $user->age() }} yrs</strong>Age</td>
-        <td><strong>{{ ucfirst($user->gender ?? '—') }}</strong>Gender</td>
-        <td><strong>{{ $user->weight ?? '—' }} kg</strong>Weight</td>
-        <td><strong>{{ $user->height ?? '—' }} cm</strong>Height</td>
+        @if($user->age())<td><strong>{{ $user->age() }} yrs</strong>Age</td>@endif
+        @if($user->gender)<td><strong>{{ ucfirst($user->gender) }}</strong>Gender</td>@endif
+        @if($user->weight)<td><strong>{{ $user->weight }} kg</strong>Weight</td>@endif
+        @if($user->height)<td><strong>{{ $user->height }} cm</strong>Height</td>@endif
         <td><strong>{{ $date }}</strong>Generated</td>
       </tr>
     </table>
@@ -216,38 +216,56 @@
       <div class="section-title">&#128100; Your Profile</div>
       <table class="info-table">
         <tr>
+          @php
+            $diet     = $user->diet_preference ?? ($memory['diet_habit'] ?? ($memory['food_preference'] ?? null));
+            $stress   = $user->stress_level    ?? ($memory['stress_level'] ?? null);
+            $sleep    = $user->sleep_hours     ?? ($memory['sleep_pattern'] ?? null);
+            $activity = $user->activity_level  ?? ($memory['activity_level'] ?? null);
+          @endphp
+          @if($diet)
           <td class="info-card">
             <div class="i-icon">&#127829;</div>
-            <div class="i-value">{{ ucfirst($user->diet_preference ?? '—') }}</div>
+            <div class="i-value">{{ ucfirst($diet) }}</div>
             <div class="i-label">Diet</div>
           </td>
+          @endif
+          @if($stress)
           <td class="info-card">
             <div class="i-icon">&#128166;</div>
-            <div class="i-value">{{ ucfirst($user->stress_level ?? '—') }}</div>
+            <div class="i-value">{{ ucfirst($stress) }}</div>
             <div class="i-label">Stress Level</div>
           </td>
+          @endif
+          @if($sleep)
           <td class="info-card">
             <div class="i-icon">&#128564;</div>
-            <div class="i-value">{{ ($user->sleep_hours ?? '—') }} hrs</div>
+            <div class="i-value">{{ $sleep }} hrs</div>
             <div class="i-label">Sleep / Night</div>
           </td>
+          @endif
         </tr>
         <tr>
+          @if($activity)
           <td class="info-card">
             <div class="i-icon">&#127939;</div>
-            <div class="i-value">{{ ucfirst($user->activity_level ?? '—') }}</div>
+            <div class="i-value">{{ ucfirst($activity) }}</div>
             <div class="i-label">Activity Level</div>
           </td>
+          @endif
+          @if($user->weight)
           <td class="info-card">
             <div class="i-icon">&#9878;</div>
-            <div class="i-value">{{ ($user->weight ?? '—') }} kg</div>
+            <div class="i-value">{{ $user->weight }} kg</div>
             <div class="i-label">Weight</div>
           </td>
+          @endif
+          @if($user->height)
           <td class="info-card">
             <div class="i-icon">&#128200;</div>
-            <div class="i-value">{{ ($user->height ?? '—') }} cm</div>
+            <div class="i-value">{{ $user->height }} cm</div>
             <div class="i-label">Height</div>
           </td>
+          @endif
         </tr>
       </table>
     </div>

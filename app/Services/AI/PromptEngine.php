@@ -9,6 +9,7 @@ use App\Models\User;
 use App\Services\NLP\LanguageDetector;
 use App\Services\NLP\MoodAnalyzer;
 use App\Services\NLP\SentimentAnalyzer;
+use Illuminate\Support\Facades\Cache;
 
 class PromptEngine
 {
@@ -18,80 +19,71 @@ class PromptEngine
         private SentimentAnalyzer $sentimentAnalyzer,
     ) {}
 
-    public function buildSystemPrompt(User $user, Coach $coach, string $userMessage = '', string $sessionLanguage = 'en'): string
-    {
+    public function buildSystemPrompt(
+        User $user,
+        Coach $coach,
+        string $userMessage = '',
+        string $sessionLanguage = 'en',
+        bool $isReturning = false,
+        string $lastInteractionSummary = '',
+        string $lastAiResponse = ''
+    ): string {
         $user->loadMissing(['goals', 'language']);
 
-        $template = PromptTemplate::where('coach_id', $coach->id)
-            ->where('language_id', $user->language_id ?? 1)
-            ->where('template_type', 'system_prompt')
-            ->where('is_active', 1)
-            ->first();
-
-        $rules = RakhiRule::where('is_active', 1)
-            ->where(function ($q) use ($coach) {
-                $q->whereNull('applies_to_coaches')
-                  ->orWhereJsonContains('applies_to_coaches', (string) $coach->id);
-            })
-            ->orderBy('priority', 'desc')
-            ->get()
-            ->pluck('rule_content')
-            ->map(fn($r) => '- ' . $r)
-            ->join("\n");
-
         $firstName   = $user->first_name ?? 'there';
+        $age         = $user->age ?? '';
+        $gender      = $user->gender ?? '';
+        $weight      = $user->weight ?? '';
+        $height      = $user->height ?? '';
         $goals       = $user->goals->pluck('name')->join(', ') ?: 'general wellness';
-        $age         = $user->age() > 0 ? $user->age() . ' years old' : 'not specified';
-        $gender      = $user->gender ?? 'not specified';
+        $primaryGoal = $user->goals->pluck('name')->first() ?? 'general wellness';
         $diet        = $user->diet_preference ?? 'not specified';
-        $activity    = $user->activity_level ?? 'not specified';
-        $stress      = $user->stress_level ?? 'not specified';
-        $sleep       = $user->sleep_hours ? $user->sleep_hours . ' hrs/night' : 'not specified';
-        $language    = $user->language?->name ?? 'English';
 
-        // Detect real-time context — use session language as fallback
-        $langCode        = $userMessage ? $this->languageDetector->detect($userMessage) : 'en';
+        // Detect language
+        $langCode = $userMessage ? $this->languageDetector->detect($userMessage) : 'en';
         if ($langCode === 'en' && $sessionLanguage !== 'en') {
-            $langCode = $sessionLanguage; // stick to user's preferred language
+            $langCode = $sessionLanguage;
         }
         $langInstruction = $this->languageDetector->getLanguageInstruction($langCode);
-        $mood            = $userMessage ? $this->moodAnalyzer->analyze($userMessage) : 'okay';
-        $sentiment       = $userMessage ? $this->sentimentAnalyzer->analyze($userMessage) : 'neutral';
-        $emotionalCtx    = $this->buildEmotionalContext($mood, $sentiment);
 
-        $basePrompt = $template?->content ?? $this->defaultPrompt($coach);
+        // Detect emotion
+        $mood      = $userMessage ? $this->moodAnalyzer->analyze($userMessage) : 'okay';
+        $sentiment = $userMessage ? $this->sentimentAnalyzer->analyze($userMessage) : 'neutral';
+        $emotionLine = $this->buildEmotionalContext($mood, $sentiment);
 
-        $prompt = str_replace(
-            [
-                '{{user_name}}', '{{goals}}', '{{age}}',
-                '{{gender}}', '{{diet}}',
-                '{{activity}}', '{{stress}}', '{{sleep}}',
-                '{{language}}', '{{rules}}',
-                '{{coach_name}}', '{{coach_speciality}}',
-            ],
-            [
-                $firstName, $goals, $age,
-                $gender, $diet,
-                $activity, $stress, $sleep,
-                $language, $rules,
-                $coach->name, $coach->speciality,
-            ],
-            $basePrompt
-        );
+        // Load active RakhiRules
+        $rules = $this->loadActiveRules($coach->id);
 
-        // 🔥 CRITICAL ADDITIONS (V2 UPGRADE)
-        $prompt .= "\n\nRESPONSE RULES:";
-        $prompt .= "\n- Focus ONLY on the user's latest message";
-        $prompt .= "\n- Always write COMPLETE sentences — never cut a sentence short";
-        $prompt .= "\n- 2–3 sentences max. Split with blank line if needed";
-        $prompt .= "\n- No bullet points, no lists, no headers";
-        $prompt .= "\n- Talk like WhatsApp — concise, warm, human";
-        $prompt .= "\n- Ask ONE question max per reply";
+        // Try to load prompt from DB (cached per coach)
+        $template = $this->resolveTemplate($coach->id);
 
-        $prompt .= "\n\nEMOTIONAL CONTEXT: {$emotionalCtx}";
-        $prompt .= "\n\nLANGUAGE: {$langInstruction} | MOOD: {$mood}";
+        if ($template) {
+            $content = $this->injectVariables($template->content, [
+                '{{user_name}}'                  => $firstName,
+                '{{primary_goal}}'               => $primaryGoal,
+                '{{age}}'                        => $age,
+                '{{gender}}'                     => $gender,
+                '{{weight}}'                     => $weight,
+                '{{height}}'                     => $height,
+                '{{goals}}'                      => $goals,
+                '{{diet}}'                       => $diet,
+                '{{language}}'                   => $langInstruction,
+                '{{rules}}'                      => $rules,
+                '{{coach_name}}'                 => $coach->name ?? 'Health Coach',
+                '{{coach_speciality}}'           => $coach->speciality ?? 'general health',
+                '{{is_returning}}'               => $isReturning ? 'returning user' : 'new user',
+                '{{last_interaction_summary}}'   => $lastInteractionSummary ?: 'No prior context.',
+            ]);
 
-        return $prompt;
+            // Append dynamic emotion + language context that changes per message
+            $antiRepeat = $this->buildAntiRepetitionBlock($lastAiResponse);
+            return $content . "\n\n━━━━━━━━━━━ CURRENT MESSAGE CONTEXT ━━━━━━━━━━━\n\nEmotion: {$emotionLine}\nLanguage: {$langInstruction}{$antiRepeat}";
+        }
+
+        // Fallback: hardcoded prompt
+        $returningNote = $isReturning ? "\n- This is a RETURNING user. Do NOT use first-time greetings." : '';
+        $lastCtx = $lastInteractionSummary ? "\nLast interaction: {$lastInteractionSummary}" : '';
+        return $this->hardcodedSystemPrompt($firstName, $primaryGoal, $goals, $emotionLine, $langInstruction, $returningNote, $lastCtx, $lastAiResponse);
     }
 
     public function buildUserPrompt(
@@ -100,113 +92,189 @@ class PromptEngine
         array $knowledgeContext,
         ?array $checkin = null,
         array $mealsToday = [],
+        array $existingPlans = [],
+        array $structuredMemory = [],
         array $crossSessionHistory = [],
         array $consultationNotes = [],
-        array $existingPlans = [],
-        array $structuredMemory = []
+        string $lastAiResponse = ''
     ): string {
+
         $parts = [];
 
-        // Structured memory — always first, highest priority
+        // 0. Anti-repetition: show last AI response so LLM avoids repeating it
+        if (!empty($lastAiResponse)) {
+            $parts[] = "Last response:\n" . $this->shorten($lastAiResponse, 300) . "\n\nInstruction: Do NOT repeat, reuse, or echo anything from the last response above. Use different wording, a new angle, or ask a follow-up question.";
+        }
+
+        // 1. User's health context (only priority keys, already filtered by ContextBuilder)
         if (!empty($structuredMemory)) {
-            $labels = [
-                'health_condition' => 'Health condition',
-                'diet_habit'       => 'Diet habit',
-                'diet_timing'      => 'Meal timing',
-                'activity_level'   => 'Activity',
-                'sleep_pattern'    => 'Sleep',
-                'stress_level'     => 'Stress',
-                'main_goal'        => 'Goal',
-                'food_preference'  => 'Food preference',
-                'lifestyle'        => 'Lifestyle',
-                'challenges'       => 'Challenges',
-                'medications'      => 'Medications',
-                'family_context'   => 'Family context',
-            ];
             $lines = [];
-            foreach ($structuredMemory as $key => $value) {
-                $label   = $labels[$key] ?? ucfirst(str_replace('_', ' ', $key));
-                $lines[] = "- {$label}: {$value}";
+            foreach ($structuredMemory as $k => $v) {
+                if (!empty($v)) {
+                    $label   = str_replace('_', ' ', $k);
+                    $lines[] = "{$label}: {$this->shorten($v)}";
+                }
             }
-            $parts[] = "WHAT YOU ALREADY KNOW ABOUT THIS USER (use naturally, never ask again):\n" . implode("\n", $lines);
+            if (!empty($lines)) {
+                $parts[] = 'About this user: ' . implode(' | ', $lines);
+            }
         }
 
-        $parts[] = "FOCUS: Respond mainly to this message → {$userMessage}";
+        // 2. User's message — always first, highest priority
+        $parts[] = "User: {$userMessage}";
 
-        if (!empty($consultationNotes)) {
-            $parts[] = "User shared earlier:\n" . implode("\n", $consultationNotes);
-        }
-
-        if (!empty($crossSessionHistory)) {
-            $parts[] = "Past context:\n" . implode("\n", array_map(
-                fn($m) => ucfirst($m['role']) . ': ' . $m['message'],
-                $crossSessionHistory
-            ));
-        }
-
+        // 3. Relevant past memory (max 2, already filtered by ContextBuilder)
         if (!empty($memories)) {
-            $filtered = array_filter($memories, fn($m) => !empty(trim($m)));
-            if (!empty($filtered)) {
-                $parts[] = "Relevant memory:\n" . implode("\n", $filtered);
-            }
+            $parts[] = 'Relevant history: ' . implode(' | ', array_slice($memories, 0, 2));
         }
 
+        // 4. Coach knowledge (max 1 snippet)
         if (!empty($knowledgeContext)) {
-            $filtered = array_filter($knowledgeContext, fn($k) => !empty(trim($k)));
-            if (!empty($filtered)) {
-                $parts[] = "Useful knowledge:\n" . implode("\n", $filtered);
-            }
+            $parts[] = 'Reference: ' . $knowledgeContext[0];
         }
 
+        // 5. Today's checkin (only if available and message is complex)
         if ($checkin) {
-            $parts[] = "Today: mood={$checkin['mood']}, energy={$checkin['energy_level']}/10";
+            $checkinParts = ["mood: {$checkin['mood']}", "energy: {$checkin['energy']}"];
+            if (!empty($checkin['sleep'])) {
+                $checkinParts[] = "sleep: {$checkin['sleep']}h";
+            }
+            $parts[] = 'Today: ' . implode(', ', $checkinParts);
         }
 
+        // 6. Meals (only if meal-related, already filtered by ContextBuilder)
         if (!empty($mealsToday)) {
-            $parts[] = "Meals: " . implode(', ', array_map(
-                fn($m) => "{$m['meal']} ({$m['calories']} cal)",
-                $mealsToday
-            ));
+            $meals   = array_map(fn($m) => $m['meal'], array_slice($mealsToday, 0, 2));
+            $parts[] = 'Meals today: ' . implode(', ', $meals);
         }
 
+        // 7. Existing plans (only if plan-related, already filtered by ContextBuilder)
         if (!empty($existingPlans)) {
-            $parts[] = "Plans exist: " . implode(', ', array_map(
-                fn($p) => $p['type'],
-                $existingPlans
-            ));
+            $parts[] = 'Has plans: ' . implode(', ', array_column($existingPlans, 'type'));
         }
 
-        return implode("\n\n", $parts);
+        return implode("\n", $parts);
+    }
+
+    private function shorten(string $text): string
+    {
+        return strlen($text) > 150 ? substr($text, 0, 150) . '...' : $text;
+    }
+
+    // ─────────────────────────────────────────────
+    // DB TEMPLATE RESOLVER (CACHED)
+    // ─────────────────────────────────────────────
+
+    private function resolveTemplate(int $coachId): ?PromptTemplate
+    {
+        return Cache::remember("prompt_template_coach_{$coachId}", 300, function () use ($coachId) {
+            return PromptTemplate::where('coach_id', $coachId)
+                ->where('template_type', 'system_prompt')
+                ->where('is_active', true)
+                ->orderBy('version', 'desc')
+                ->first();
+        });
+    }
+
+    // ─────────────────────────────────────────────
+    // VARIABLE INJECTION
+    // ─────────────────────────────────────────────
+
+    private function injectVariables(string $content, array $variables): string
+    {
+        return str_replace(array_keys($variables), array_values($variables), $content);
+    }
+
+    // ─────────────────────────────────────────────
+    // ACTIVE RULES LOADER
+    // ─────────────────────────────────────────────
+
+    private function loadActiveRules(int $coachId): string
+    {
+        $rules = Cache::remember("rakhi_rules_{$coachId}", 300, function () use ($coachId) {
+            return RakhiRule::where('is_active', true)
+                ->where(function ($q) use ($coachId) {
+                    $q->whereNull('applies_to_coaches')
+                      ->orWhereJsonContains('applies_to_coaches', $coachId);
+                })
+                ->orderBy('priority', 'desc')
+                ->pluck('rule_content')
+                ->toArray();
+        });
+
+        return !empty($rules) ? implode("\n- ", $rules) : 'Always be warm, human, and helpful.';
+    }
+
+    // ─────────────────────────────────────────────
+    // FALLBACK HARDCODED PROMPT
+    // ─────────────────────────────────────────────
+
+    private function hardcodedSystemPrompt(
+        string $firstName,
+        string $primaryGoal,
+        string $goals,
+        string $emotionLine,
+        string $langInstruction,
+        string $returningNote = '',
+        string $lastCtx = '',
+        string $lastAiResponse = ''
+    ): string {
+        $antiRepeat = $this->buildAntiRepetitionBlock($lastAiResponse);
+        return <<<PROMPT
+You are Rakhi — a warm, knowledgeable Indian health coach. Professional, empathetic, human.
+
+User: {$firstName} | Goal: {$primaryGoal}{$lastCtx}
+
+RULES:{$returningNote}
+- Acknowledge before advising. Empathy first, practical second.
+- ONE question per reply. 2–3 sentences max.
+- Never repeat the same opener or structure as your last response.
+- Never use bullet points, headers, or numbered lists in replies.
+- Never say: "Absolutely!", "Great question!", "Thank you for sharing", "I understand your concern".
+- Reference what you already know about the user before asking for new info.
+- Sound like a real person, not a health website.
+
+EMOTION: {$emotionLine}
+
+LANGUAGE: {$langInstruction}
+{$antiRepeat}
+PROMPT;
+    }
+
+    private function buildAntiRepetitionBlock(string $lastAiResponse): string
+    {
+        if (empty(trim($lastAiResponse))) return '';
+        $preview = $this->shorten($lastAiResponse, 150);
+        return "\n\nLAST RESPONSE (do NOT repeat or echo): \"{$preview}\"";
     }
 
     private function buildEmotionalContext(string $mood, string $sentiment): string
     {
-        if ($mood === 'bad' || $sentiment === 'negative') {
-            return "User is struggling. Acknowledge emotions first before giving advice.";
-        }
-        if ($mood === 'great') {
-            return "User is feeling good. Match energy and encourage.";
-        }
-        if ($mood === 'low') {
-            return "User seems low. Be supportive and gentle.";
-        }
-        return "Keep tone natural and friendly.";
+        $emotion = match(true) {
+            $mood === 'sad'       || $sentiment === 'negative' => 'sad',
+            $mood === 'stressed'                               => 'stressed',
+            $mood === 'tired'                                  => 'tired',
+            $mood === 'great'    || $mood === 'happy'
+                                 || $sentiment === 'positive' => 'positive',
+            default                                            => 'neutral',
+        };
+
+        return match($emotion) {
+            'sad'      => 'User is sad/low. Acknowledge their feeling FIRST before any advice. One gentle question only.',
+            'stressed' => 'User is stressed/overwhelmed. Acknowledge the pressure first. ONE calming thought, then one question.',
+            'tired'    => 'User is tired/drained. Acknowledge fatigue first. Ask what is causing it before giving tips.',
+            'positive' => 'User is in a good mood. Match their energy briefly, then build on it with one useful thought.',
+            default    => 'Neutral mood. Respond warmly and naturally. One follow-up question.',
+        };
     }
 
-    private function defaultPrompt(Coach $coach): string
+    // ─────────────────────────────────────────────
+    // CACHE CLEAR (call from admin when template updated)
+    // ─────────────────────────────────────────────
+
+    public static function clearTemplateCache(int $coachId): void
     {
-        return <<<PROMPT
-You are Rakhi — a smart, warm Indian health coach acting as {{coach_name}} ({{coach_speciality}}).
-
-User: {{user_name}} | Goals: {{goals}} | Diet: {{diet}} | Activity: {{activity}} | Sleep: {{sleep}} | Stress: {{stress}}
-
-PERSONALITY:
-- Talk like a close friend on WhatsApp
-- Be natural, caring, and intelligent
-- No robotic language
-
-RULES:
-{{rules}}
-PROMPT;
+        Cache::forget("prompt_template_coach_{$coachId}");
+        Cache::forget("rakhi_rules_{$coachId}");
     }
 }

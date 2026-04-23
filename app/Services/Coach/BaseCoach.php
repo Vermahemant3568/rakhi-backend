@@ -13,7 +13,6 @@ use App\Services\NLP\IntentDetector;
 use App\Services\NLP\SentimentAnalyzer;
 use App\Services\Vector\UserMemoryService;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Queue;
 
 abstract class BaseCoach
 {
@@ -67,8 +66,11 @@ abstract class BaseCoach
             ];
         }
 
+        // Extract last AI response for anti-repetition
+        $lastAiResponse = $this->contextBuilder->getLastAiResponse($sessionId);
+
         // Build prompts
-        $systemPrompt = $this->promptEngine->buildSystemPrompt($user, $coach, $message, $session->detected_language ?? 'en');
+        $systemPrompt = $this->promptEngine->buildSystemPrompt($user, $coach, $message, $session->detected_language ?? 'en', false, '', $lastAiResponse);
 
         $userPrompt = $this->promptEngine->buildUserPrompt(
             userMessage:         $message,
@@ -80,6 +82,7 @@ abstract class BaseCoach
             consultationNotes:   $context['consultation_notes'] ?? [],
             existingPlans:       $context['existing_plans'] ?? [],
             structuredMemory:    $context['structured_memory'] ?? [],
+            lastAiResponse:      $lastAiResponse,
         );
 
         $fullPrompt = $systemPrompt . "\n\n" . $userPrompt;
@@ -88,20 +91,22 @@ abstract class BaseCoach
 
         $response = $this->optimizeResponse($response);
 
-        // Non-blocking: extract memory + store to Pinecone via queue
-        Queue::push(function () use ($user, $message, $response) {
-            try {
-                $this->memoryExtractor->extractAndStore($user, $message);
-            } catch (\Exception $e) {
-                Log::warning('Memory extraction failed: ' . $e->getMessage());
-            }
-            try {
-                $this->memory->store($user, $message, 'user');
-                $this->memory->store($user, $response, 'rakhi');
-            } catch (\Exception $e) {
-                Log::warning('Memory store failed: ' . $e->getMessage());
-            }
-        });
+        // Store to Pinecone (non-blocking — skip silently if not configured)
+        try {
+            $this->memory->store($user, $message, 'user', [
+                'session_id' => $sessionId,
+                'type'       => 'short_term',
+            ]);
+        } catch (\Exception $e) {
+            Log::warning('Pinecone store skipped: ' . $e->getMessage());
+        }
+
+        // Extract structured memory facts from user message (non-blocking)
+        try {
+            $this->memoryExtractor->extractAndStore($user, $message);
+        } catch (\Exception $e) {
+            Log::warning('MemoryExtractor skipped: ' . $e->getMessage());
+        }
 
         return $response;
     }
@@ -112,31 +117,46 @@ abstract class BaseCoach
      */
     private function optimizeResponse(string $response): string
     {
-        // Strip generic AI filler phrases
-        $badPhrases = [
-            'I understand', 'Thank you for sharing', 'That makes sense',
-            'I completely understand', 'I see',
+        // Strip generic AI filler openers that break tone regardless of language
+        $stripPhrases = [
+            'I completely understand, ',
+            'I completely understand. ',
+            'I completely understand',
+            'Thank you for sharing, ',
+            'Thank you for sharing. ',
+            'Thank you for sharing',
+            'That makes sense, ',
+            'That makes sense. ',
+            'That makes sense',
+            'I understand, ',
+            'I understand. ',
+            'I understand',
+            'I see, ',
+            'I see. ',
+            'Absolutely! ',
+            'Absolutely, ',
+            'Certainly! ',
+            'Of course! ',
+            'Great question! ',
+            'Great question, ',
+            'Commendable! ',
         ];
-        foreach ($badPhrases as $phrase) {
-            $response = str_ireplace($phrase . ', ', '', $response);
-            $response = str_ireplace($phrase . '. ', '', $response);
+
+        foreach ($stripPhrases as $phrase) {
             $response = str_ireplace($phrase, '', $response);
         }
 
         $response = trim($response);
 
-        // If within safe length, return as-is
         if (strlen($response) <= 320) {
             return $response;
         }
 
-        // Try to cut at a paragraph boundary first
         $paragraphs = explode("\n\n", $response);
         if (count($paragraphs) >= 2 && strlen($paragraphs[0]) >= 60) {
             return trim($paragraphs[0]) . "\n\n" . trim($paragraphs[1]);
         }
 
-        // Fall back to last sentence boundary within 320 chars
         $cut = substr($response, 0, 320);
         $lastPeriod = max(
             strrpos($cut, '. '),

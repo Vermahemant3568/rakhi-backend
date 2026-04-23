@@ -16,8 +16,6 @@ use App\Services\NLP\SentimentAnalyzer;
 use App\Services\NLP\LanguageDetector;
 use App\Services\Safety\MedicalBoundaryChecker;
 use App\Services\Safety\SafetyLayer;
-use App\Events\MessageSent;
-use App\Events\VoiceSessionStarted;
 use App\Jobs\GenerateDietPlan;
 use App\Jobs\GenerateFitnessPlan;
 use Illuminate\Http\Request;
@@ -73,20 +71,27 @@ class ChatController extends Controller
 
         $alreadyGreeted = ChatMessage::where('session_id', $session->id)->exists();
 
-        if ($isFirstConsultation && !$alreadyGreeted) {
-            // Use a DB lock to prevent duplicate greetings from concurrent requests
-            $inserted = \Illuminate\Support\Facades\DB::transaction(function () use ($session, $user) {
-                // Re-check inside the lock
+        if (!$alreadyGreeted) {
+            DB::transaction(function () use ($session, $user, $isFirstConsultation) {
                 $exists = ChatMessage::where('session_id', $session->id)
                     ->lockForUpdate()
                     ->exists();
 
-                if ($exists) return false;
+                if ($exists) return;
 
-                $user->load('goals');
-                $this->saveMessage($session->id, $user->id, 'rakhi', $this->welcomeService->getWelcomeMessage($user));
-                $this->saveMessage($session->id, $user->id, 'rakhi', $this->welcomeService->getCallInviteMessage(), null, 'call_action');
-                return true;
+                $user->load(['goals', 'language']);
+                $lang = $session->detected_language
+                    ?? $this->resolveUserLanguage($user);
+
+                if ($isFirstConsultation) {
+                    $this->saveMessage($session->id, $user->id, 'rakhi', $this->welcomeService->getWelcomeMessage($user, $lang));
+                    $this->saveMessage($session->id, $user->id, 'rakhi', $this->welcomeService->getCallInviteMessage($lang));
+                } else {
+                    $greeting = $this->welcomeService->getReturningUserGreeting($user, $lang, false);
+                    if ($greeting !== '') {
+                        $this->saveMessage($session->id, $user->id, 'rakhi', $greeting);
+                    }
+                }
             });
         }
 
@@ -123,11 +128,11 @@ class ChatController extends Controller
             return response()->json(['success' => true, 'message' => null]);
         }
 
-        $user->loadMissing('goals');
-        $rakhiOpener = $this->welcomeService->getChatOpener($user);
+        $user->loadMissing(['goals', 'language']);
+        $lang        = $session->detected_language ?? $this->resolveUserLanguage($user);
+        $rakhiOpener = $this->welcomeService->getChatOpener($user, $lang);
 
         $msg = $this->saveMessage($session->id, $user->id, 'rakhi', $rakhiOpener);
-        broadcast(new MessageSent($session->id, 'rakhi', $rakhiOpener));
 
         return response()->json(['success' => true, 'message' => $msg]);
     }
@@ -151,10 +156,9 @@ class ChatController extends Controller
             'status'                => 'active',
         ]);
 
-        broadcast(new VoiceSessionStarted($voiceSession));
-
         $user->load('goals');
-        $greetingText = $this->welcomeService->getVoiceWelcomeMessage($user);
+        $lang         = $session->detected_language ?? 'en';
+        $greetingText = $this->welcomeService->getVoiceWelcomeMessage($user, $lang);
 
         ChatMessage::create([
             'session_id'   => $voiceSession->id,
@@ -189,12 +193,8 @@ class ChatController extends Controller
 
         $this->saveMessage($session->id, $user->id, 'user', $userMessage);
 
-        broadcast(new MessageSent($session->id, 'user', $userMessage))->toOthers();
-
-        // Mark any pending proactive reminders as responded
         $this->proactiveReminder->markUserResponded($user);
 
-        // Detect & persist language (only update if non-English detected)
         $detectedLang = $this->languageDetector->detect($userMessage);
         if ($detectedLang !== 'en') {
             $session->update(['detected_language' => $detectedLang]);
@@ -212,8 +212,13 @@ class ChatController extends Controller
         try {
             $rakhiResponse = $coachService->respond($user, $userMessage, $session->id);
         } catch (\Illuminate\Http\Client\ConnectionException $e) {
-            Log::warning('LLM timeout on sendMessage: ' . $e->getMessage());
-            $rakhiResponse = $this->timeoutFallback($user->first_name);
+            Log::warning('LLM timeout on sendMessage, retrying: ' . $e->getMessage());
+            try {
+                $rakhiResponse = $coachService->respond($user, $userMessage, $session->id);
+            } catch (\Exception $retryEx) {
+                Log::error('LLM retry also failed: ' . $retryEx->getMessage());
+                $rakhiResponse = $this->timeoutFallback($user->first_name);
+            }
         } catch (\Exception $e) {
             Log::error('sendMessage error: ' . $e->getMessage());
             $rakhiResponse = $this->timeoutFallback($user->first_name);
@@ -224,42 +229,73 @@ class ChatController extends Controller
 
     private function handleFirstConsultationMessage(ChatSession $session, $user, string $userMessage, string $mood)
     {
+        /** @var \App\Services\Coach\ConsultationCoach $consultationCoach */
+        $consultationCoach = $this->coachRouter->resolveCoachService('consultation-coach');
+
         try {
-            $response = $this->welcomeService->getConsultationResponse(
-                session: $session,
-                user: $user,
-                userMessage: $userMessage
-            );
+            $response = $consultationCoach->respond($user, $userMessage, $session->id);
         } catch (\Illuminate\Http\Client\ConnectionException $e) {
-            Log::warning('Consultation LLM timeout: ' . $e->getMessage());
-            return $this->sendRakhiResponse($session, $user, $this->timeoutFallback($user->first_name), $mood);
+            Log::warning('Consultation LLM timeout, retrying: ' . $e->getMessage());
+            try {
+                $response = $consultationCoach->respond($user, $userMessage, $session->id);
+            } catch (\Exception $retryEx) {
+                Log::error('Consultation retry failed: ' . $retryEx->getMessage());
+                return $this->sendRakhiResponse($session, $user, $this->timeoutFallback($user->first_name), $mood);
+            }
         } catch (\Exception $e) {
             Log::error('Consultation response error: ' . $e->getMessage());
             return $this->sendRakhiResponse($session, $user, $this->timeoutFallback($user->first_name), $mood);
         }
 
+        // ── Load history & goal for field checks ──────────────────────────────
+        $history = ChatMessage::where('session_id', $session->id)
+            ->orderBy('created_at', 'asc')
+            ->get()
+            ->map(fn($m) => ['role' => $m->role, 'message' => $m->message])
+            ->toArray();
+
+        $user->loadMissing(['goals']);
+        $goal    = strtolower($user->goals->pluck('name')->first() ?? 'general');
+        $missing = $this->welcomeService->getMissingFields($history, $goal);
+        $lang    = $session->detected_language ?? 'en';
+
+        $userTurns = collect($history)->where('role', 'user')->count();
+
+        // ── Safety valve: force completion if LLM forgot [GENERATE_PLANS] ────
+        // Fires when all fields are collected + min turns met but LLM omitted the trigger
+        if (
+            !str_contains($response, '[GENERATE_PLANS]') &&
+            $userTurns >= WelcomeConsultationService::MIN_USER_TURNS &&
+            empty($missing)
+        ) {
+            Log::info('Safety valve fired — forcing plan generation', [
+                'session_id' => $session->id,
+                'user_turns' => $userTurns,
+            ]);
+            $response = $this->welcomeService->getCompletionMessage($user->first_name ?? '', $lang)
+                . "\n[GENERATE_PLANS]";
+        }
+
+        // ── Handle [GENERATE_PLANS] trigger ──────────────────────────────────
         if (str_contains($response, '[GENERATE_PLANS]')) {
 
-            $data    = $this->extractConsultationData($session->id);
-            $missing = $this->getMissingFields($data);
-
+            // Re-check missing fields (handles the case where safety valve fired
+            // but fields were actually not all collected yet — belt-and-suspenders)
             if (!empty($missing)) {
-                $questions = [
-                    'diet'     => "What do you usually eat in a full day? 😊",
-                    'activity' => "Do you do any exercise or walking daily?",
-                    'sleep'    => "How many hours do you sleep at night?",
-                    'stress'   => "Do you feel stressed or tired during the day?"
-                ];
-                return $this->sendRakhiResponse($session, $user, $questions[$missing[0]], $mood);
+                $response = str_replace('[GENERATE_PLANS]', '', trim($response));
+                Log::warning('GENERATE_PLANS fired but fields still missing — suppressed', [
+                    'missing'    => $missing,
+                    'session_id' => $session->id,
+                ]);
+                return $this->sendRakhiResponse($session, $user, $response, $mood);
             }
 
-            $response = str_replace('[GENERATE_PLANS]', '', $response);
+            $completion = $this->welcomeService->getCompletionMessage($user->first_name ?? '', $lang);
 
-            // Send completion message immediately, generate plans after response
-            $completionMsg = $this->welcomeService->getCompletionMessage($user->first_name ?? '');
+            // Mark session AND user as consultation complete
             $session->update(['is_first_consultation' => false]);
+            $user->update(['first_consultation_complete' => true]);
 
-            // Use defer() to run plan generation after HTTP response is sent
             $userId    = $user->id;
             $sessionId = $session->id;
             defer(function () use ($userId, $sessionId) {
@@ -271,29 +307,10 @@ class ChatController extends Controller
                 }
             });
 
-            return $this->sendRakhiResponse($session, $user, $completionMsg, $mood);
+            return $this->sendRakhiResponse($session, $user, $completion, $mood);
         }
 
         return $this->sendRakhiResponse($session, $user, $response, $mood);
-    }
-
-    private function extractConsultationData(int $sessionId): array
-    {
-        $text = strtolower(
-            ChatMessage::where('session_id', $sessionId)->pluck('message')->implode(' ')
-        );
-
-        return [
-            'diet' => preg_match('/(eat|food|diet|meal)/', $text),
-            'activity' => preg_match('/(exercise|walk|gym|yoga)/', $text),
-            'sleep' => preg_match('/(sleep|night)/', $text),
-            'stress' => preg_match('/(stress|problem|tension)/', $text),
-        ];
-    }
-
-    private function getMissingFields(array $data): array
-    {
-        return array_keys(array_filter($data, fn($v) => !$v));
     }
 
     public function history(int $sessionId)
@@ -324,23 +341,33 @@ class ChatController extends Controller
         return response()->json(['success' => true, 'sessions' => $sessions]);
     }
 
+    private function resolveUserLanguage($user): string
+    {
+        $langName = strtolower($user->language?->name ?? '');
+        return match(true) {
+            str_contains($langName, 'hindi')   => 'hi',
+            str_contains($langName, 'tamil')   => 'ta',
+            str_contains($langName, 'telugu')  => 'te',
+            str_contains($langName, 'marathi') => 'mr',
+            default                            => 'en',
+        };
+    }
+
     private function timeoutFallback(string $firstName = ''): string
     {
         $name = $firstName ? ", {$firstName}" : '';
-        return "Hey{$name} — I'm just taking a second to think 🌸\n\nCould you send that again? I want to make sure I give you the right response.";
+        return "Hey{$name}, I'm having a little trouble connecting right now 🌸 Give me a moment and try again — I'm here for you!";
     }
 
     private function sendRakhiResponse(ChatSession $session, $user, string $response, string $mood, ?int $coachId = null)
     {
         $msg = $this->saveMessage($session->id, $user->id, 'rakhi', $response, $coachId);
 
-        broadcast(new MessageSent($session->id, 'rakhi', $response));
-
         return response()->json([
-            'success' => true,
-            'message' => $msg,
+            'success'  => true,
+            'message'  => $msg,
             'response' => $response,
-            'mood' => $mood,
+            'mood'     => $mood,
         ]);
     }
 

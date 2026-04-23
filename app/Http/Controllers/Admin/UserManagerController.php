@@ -3,10 +3,13 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\ChatSession;
 use App\Models\User;
 use App\Models\MealLog;
+use App\Services\AI\WelcomeConsultationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 class UserManagerController extends Controller
 {
@@ -80,10 +83,69 @@ class UserManagerController extends Controller
         );
     }
 
+    public function allPlans(Request $request): JsonResponse
+    {
+        $query = \App\Models\UserPlan::with(['user:id,first_name,last_name,mobile', 'coach:id,name'])
+            ->orderBy('id', 'desc');
+
+        if ($request->filled('plan_type')) {
+            $query->where('plan_type', $request->plan_type);
+        }
+
+        if ($request->filled('user_id')) {
+            $query->where('user_id', $request->user_id);
+        }
+
+        $plans = $query->paginate(50);
+
+        // Ensure generated_at is always present (model has timestamps=false)
+        $plans->getCollection()->transform(function ($plan) {
+            $plan->generated_at = $plan->generated_at?->toDateTimeString() ?? null;
+            return $plan;
+        });
+
+        return response()->json([
+            'success' => true,
+            'data'    => $plans,
+        ]);
+    }
+
     public function mealLogs($id): JsonResponse
     {
         return response()->json(
             MealLog::where('user_id', $id)->latest()->paginate(20)
         );
+    }
+
+    public function regeneratePlans($id): JsonResponse
+    {
+        $user = User::with(['goals', 'coaches'])->findOrFail($id);
+
+        // Find the consultation session
+        $session = ChatSession::where('user_id', $user->id)
+            ->where('session_type', 'chat')
+            ->where('is_first_consultation', 0) // completed
+            ->orderBy('id', 'desc')
+            ->first();
+
+        if (!$session) {
+            // Try any chat session
+            $session = ChatSession::where('user_id', $user->id)
+                ->where('session_type', 'chat')
+                ->orderBy('id', 'desc')
+                ->first();
+        }
+
+        if (!$session) {
+            return response()->json(['success' => false, 'message' => 'No chat session found for this user'], 404);
+        }
+
+        try {
+            app(WelcomeConsultationService::class)->generateAllPlans($user, $session->id);
+            return response()->json(['success' => true, 'message' => 'Plans generated successfully for user ' . $user->first_name]);
+        } catch (\Throwable $e) {
+            Log::error('Admin regeneratePlans failed for user ' . $id . ': ' . $e->getMessage());
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
+        }
     }
 }

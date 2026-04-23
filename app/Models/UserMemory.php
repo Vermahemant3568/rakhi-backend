@@ -19,6 +19,7 @@ class UserMemory extends Model
     // All valid memory keys Rakhi can store
     public const KEYS = [
         'health_condition', // diabetes, PCOS, thyroid, BP, etc.
+        'diabetes_type',    // type1, type2, gestational, prediabetes
         'diet_habit',       // what they eat daily
         'diet_timing',      // meal timing patterns
         'activity_level',   // exercise, walking, sedentary

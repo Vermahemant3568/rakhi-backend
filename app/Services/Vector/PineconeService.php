@@ -57,7 +57,11 @@ class PineconeService
             ]);
 
         if ($response->failed()) {
-            Log::error('Pinecone upsert failed: ' . $response->body(), [
+            $status = $response->status();
+            $msg    = in_array($status, [401, 403])
+                ? 'Pinecone upsert failed: Invalid API key or unauthorized (HTTP ' . $status . '). Update key in Admin → API Manager.'
+                : 'Pinecone upsert failed: HTTP ' . $status . ' — ' . $response->body();
+            Log::error($msg, [
                 'host'    => $this->baseUrl(),
                 'api_key' => substr($this->apiKey(), 0, 10) . '...',
             ]);
@@ -93,7 +97,11 @@ class PineconeService
             ->post("{$this->baseUrl()}/query", $body);
 
         if ($response->failed()) {
-            Log::error('Pinecone query failed: ' . $response->body());
+            $status = $response->status();
+            $msg    = in_array($status, [401, 403])
+                ? 'Pinecone query failed: Invalid API key or unauthorized (HTTP ' . $status . '). Update key in Admin → API Manager.'
+                : 'Pinecone query failed: HTTP ' . $status . ' — ' . $response->body();
+            Log::error($msg);
             return [];
         }
 

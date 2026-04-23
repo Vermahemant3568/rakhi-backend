@@ -7,6 +7,7 @@ use App\Models\Goal;
 use App\Models\Language;
 use App\Models\UserGoal;
 use App\Models\UserCoach;
+use App\Models\UserMemory;
 use App\Services\Coach\CoachRouter;
 use Illuminate\Http\Request;
 
@@ -207,12 +208,61 @@ class OnboardingController extends Controller
     // Complete onboarding — Screen 13 → 16
     public function completeOnboarding()
     {
-        auth()->user()->update([
+        $user = auth()->user()->load(['goals', 'language']);
+
+        $user->update([
             'onboarding_complete' => 1,
             'onboarding_step'     => 16,
         ]);
 
+        // Seed UserMemory from onboarding data so Rakhi knows the user from day 1
+        $this->seedOnboardingMemory($user);
+
         return $this->success('Onboarding complete! Welcome to Rakhi.');
+    }
+
+    private function seedOnboardingMemory($user): void
+    {
+        $user->loadMissing(['goals', 'language']);
+
+        $goalName = strtolower($user->goals->pluck('name')->first() ?? '');
+
+        // Map goal name to health condition
+        $condition = match(true) {
+            str_contains($goalName, 'diabet')  => 'diabetes',
+            str_contains($goalName, 'pcos')    => 'PCOS',
+            str_contains($goalName, 'thyroid') => 'thyroid condition',
+            str_contains($goalName, 'pregnan') => 'pregnancy',
+            str_contains($goalName, 'weight')  => 'weight management',
+            str_contains($goalName, 'stress')  => 'stress management',
+            str_contains($goalName, 'sleep')   => 'sleep issues',
+            str_contains($goalName, 'energy')  => 'low energy',
+            str_contains($goalName, 'habit')   => 'habit building',
+            str_contains($goalName, 'mental')  => 'mental wellness',
+            default                            => 'general wellness',
+        };
+
+        $seeds = [
+            'main_goal'        => $user->goals->pluck('name')->join(', ') ?: 'general wellness',
+            'health_condition' => $condition,
+        ];
+
+        // Add physical stats if available
+        if ($user->weight) {
+            $seeds['lifestyle'] = 'weight: ' . $user->weight . 'kg'
+                . ($user->height ? ', height: ' . $user->height . 'cm' : '')
+                . ($user->getAge() > 0 ? ', age: ' . $user->getAge() : '')
+                . ($user->gender ? ', gender: ' . $user->gender : '');
+        }
+
+        foreach ($seeds as $key => $value) {
+            if (!empty($value)) {
+                UserMemory::updateOrCreate(
+                    ['user_id' => $user->id, 'key' => $key],
+                    ['value' => $value, 'source' => 'onboarding']
+                );
+            }
+        }
     }
 
     // FAQ data — Screen 14

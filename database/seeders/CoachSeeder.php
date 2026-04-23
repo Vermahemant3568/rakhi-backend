@@ -24,6 +24,7 @@ class CoachSeeder extends Seeder
             ['name' => 'Stress Coach',           'pinecone_namespace' => 'coach-stress',          'speciality' => 'Stress Management',          'is_launch_coach' => 0, 'sort_order' => 11],
             ['name' => 'Habit Coach',            'pinecone_namespace' => 'coach-habit',           'speciality' => 'Habit Building',             'is_launch_coach' => 0, 'sort_order' => 12],
             ['name' => 'Vision Coach',            'pinecone_namespace' => 'coach-vision',          'speciality' => 'Eye Health & Vision Wellness', 'is_launch_coach' => 0, 'sort_order' => 13],
+            ['name' => 'Consultation Coach',      'pinecone_namespace' => 'coach-consultation',    'speciality' => 'First Consultation & Onboarding', 'is_launch_coach' => 1, 'sort_order' => 0],
         ];
 
         foreach ($coaches as $coach) {

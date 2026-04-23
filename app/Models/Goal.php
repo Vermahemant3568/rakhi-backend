@@ -11,4 +11,15 @@ class Goal extends Model
     protected $fillable = ['name', 'slug', 'icon', 'description', 'coach_id', 'is_active', 'sort_order'];
 
     protected $casts = ['is_active' => 'boolean'];
+
+    public function users()
+    {
+        return $this->belongsToMany(User::class, 'user_goals')
+                    ->wherePivot('is_active', 1);
+    }
+
+    public function coach()
+    {
+        return $this->belongsTo(Coach::class);
+    }
 }

@@ -14,6 +14,7 @@ use App\Http\Controllers\Admin\KnowledgeBaseController;
 use App\Http\Controllers\Admin\UserManagerController;
 use App\Http\Controllers\Admin\FinanceController;
 use App\Http\Controllers\Admin\ProgressController;
+use App\Http\Controllers\Admin\JobMonitorController;
 
 // Public
 Route::prefix('admin')->group(function () {
@@ -46,11 +47,14 @@ Route::prefix('admin')->group(function () {
         Route::put('/llm-configs/{id}/activate',[ApiManagerController::class, 'llmActivate']);
 
         // Coaches
-        Route::get('/coaches',              [CoachController::class, 'index']);
-        Route::post('/coaches',             [CoachController::class, 'store']);
-        Route::put('/coaches/{id}',         [CoachController::class, 'update']);
-        Route::put('/coaches/{id}/toggle',  [CoachController::class, 'toggle']);
-        Route::delete('/coaches/{id}',      [CoachController::class, 'destroy']);
+        Route::get('/coaches',                    [CoachController::class, 'index']);
+        Route::post('/coaches',                   [CoachController::class, 'store']);
+        Route::get('/coaches/{id}',               [CoachController::class, 'show']);
+        Route::put('/coaches/{id}',               [CoachController::class, 'update']);
+        Route::put('/coaches/{id}/toggle',        [CoachController::class, 'toggle']);
+        Route::put('/coaches/{id}/toggle-launch', [CoachController::class, 'toggleLaunch']);
+        Route::post('/coaches/reorder',           [CoachController::class, 'reorder']);
+        Route::delete('/coaches/{id}',            [CoachController::class, 'destroy']);
 
         // Prompt Templates
         Route::get('/prompts',              [PromptController::class, 'index']);
@@ -69,6 +73,8 @@ Route::prefix('admin')->group(function () {
         // Goals
         Route::get('/goals',                [GoalController::class, 'index']);
         Route::post('/goals',               [GoalController::class, 'store']);
+        Route::post('/goals/reorder',       [GoalController::class, 'reorder']);
+        Route::get('/goals/{id}',           [GoalController::class, 'show']);
         Route::put('/goals/{id}',           [GoalController::class, 'update']);
         Route::put('/goals/{id}/toggle',    [GoalController::class, 'toggle']);
         Route::delete('/goals/{id}',        [GoalController::class, 'destroy']);
@@ -88,22 +94,36 @@ Route::prefix('admin')->group(function () {
         // Knowledge Base
         Route::get('/knowledge',                [KnowledgeBaseController::class, 'index']);
         Route::post('/knowledge',               [KnowledgeBaseController::class, 'store']);
+        Route::post('/knowledge/sync-all',      [KnowledgeBaseController::class, 'syncAll']);
         Route::put('/knowledge/{id}',           [KnowledgeBaseController::class, 'update']);
         Route::put('/knowledge/{id}/toggle',    [KnowledgeBaseController::class, 'toggle']);
         Route::post('/knowledge/{id}/sync',     [KnowledgeBaseController::class, 'syncToVector']);
         Route::delete('/knowledge/{id}',        [KnowledgeBaseController::class, 'destroy']);
 
         // User Manager
-        Route::get('/users',                    [UserManagerController::class, 'index']);
-        Route::get('/users/{id}',               [UserManagerController::class, 'show']);
-        Route::put('/users/{id}/ban',           [UserManagerController::class, 'ban']);
-        Route::put('/users/{id}/unban',         [UserManagerController::class, 'unban']);
-        Route::get('/users/{id}/chats',         [UserManagerController::class, 'chats']);
-        Route::get('/users/{id}/plans',         [UserManagerController::class, 'plans']);
-        Route::get('/users/{id}/meal-logs',     [UserManagerController::class, 'mealLogs']);
+        Route::get('/users',                           [UserManagerController::class, 'index']);
+        Route::get('/users/{id}',                      [UserManagerController::class, 'show']);
+        Route::put('/users/{id}/ban',                  [UserManagerController::class, 'ban']);
+        Route::put('/users/{id}/unban',                [UserManagerController::class, 'unban']);
+        Route::get('/users/{id}/chats',                [UserManagerController::class, 'chats']);
+        Route::get('/users/{id}/plans',                [UserManagerController::class, 'plans']);
+        Route::get('/users/{id}/meal-logs',            [UserManagerController::class, 'mealLogs']);
+        Route::post('/users/{id}/regenerate-plans',    [UserManagerController::class, 'regeneratePlans']);
+
+        // All user plans (global listing)
+        Route::get('/user-plans',                      [UserManagerController::class, 'allPlans']);
 
         // Finance
         Route::get('/finance', [FinanceController::class, 'index']);
+
+        // Job Monitor
+        Route::get('/jobs',                      [JobMonitorController::class, 'index']);
+        Route::post('/jobs/retry-failed',        [JobMonitorController::class, 'retryFailed']);
+        Route::post('/jobs/retry-all-failed',    [JobMonitorController::class, 'retryAllFailed']);
+        Route::delete('/jobs/failed/{id}',       [JobMonitorController::class, 'deleteFailed']);
+        Route::delete('/jobs/clear-failed',      [JobMonitorController::class, 'clearAllFailed']);
+        Route::delete('/jobs/clear-stale',       [JobMonitorController::class, 'clearStaleJobs']);
+        Route::delete('/jobs/clear-all-failed',  [JobMonitorController::class, 'clearAllFailed']);
 
         // Progress
         Route::prefix('progress')->group(function () {

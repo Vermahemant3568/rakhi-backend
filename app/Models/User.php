@@ -107,7 +107,7 @@ class User extends Authenticatable implements JWTSubject
                && $sub->ends_at > now();
     }
 
-    public function age(): int
+    public function getAge(): int
     {
         return $this->date_of_birth
             ? $this->date_of_birth->age

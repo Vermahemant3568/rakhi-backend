@@ -68,25 +68,89 @@ class LanguageDetector
     public function getLanguageInstruction(string $langCode): string
     {
         return match(true) {
-            $langCode === 'hi'             => 'The user is writing in Hindi (Devanagari script). Reply in Hindi using Devanagari script.',
-            $langCode === 'hi-roman'       => 'The user is writing in Hinglish (Hindi in Roman/English letters). Reply in the same Hinglish style — casual, warm, Roman Hindi mixed with English naturally.',
-            str_ends_with($langCode, '-request') => $this->getLanguageRequestInstruction($langCode),
-            $langCode === 'ta'             => 'The user is writing in Tamil. Reply in Tamil.',
-            $langCode === 'te'             => 'The user is writing in Telugu. Reply in Telugu.',
-            $langCode === 'mr'             => 'The user is writing in Marathi. Reply in Marathi.',
-            default                        => 'Reply in English.',
+            $langCode === 'hi'                     => $this->hindiInstruction(),
+            $langCode === 'hi-roman'               => $this->hinglishInstruction(),
+            str_ends_with($langCode, '-request')   => $this->getLanguageRequestInstruction($langCode),
+            $langCode === 'ta'                     => 'The user is writing in Tamil. Reply in Tamil. Keep the same warm, conversational tone.',
+            $langCode === 'te'                     => 'The user is writing in Telugu. Reply in Telugu. Keep the same warm, conversational tone.',
+            $langCode === 'mr'                     => 'The user is writing in Marathi. Reply in Marathi. Keep the same warm, conversational tone.',
+            default                                => $this->englishInstruction(),
         };
+    }
+
+    private function hindiInstruction(): string
+    {
+        return <<<'INST'
+The user is writing in Hindi (Devanagari script). Reply in Hindi.
+
+Hindi tone rules:
+- Write in clear, simple Hindi — not overly formal, but not casual slang either
+- Always use "आप" — never "तुम" or "तू"
+- Short sentences, easy to read
+- Sound like a professional coach who genuinely cares — not a doctor's report, not a casual friend
+- Do NOT translate English health terms — keep them as-is (e.g. "blood sugar", "protein", "calories")
+- Empathy should be warm and composed — not over-dramatic
+
+Good Hindi response examples:
+"रात को देर से खाना और blood sugar का सीधा connection होता है। कल से dinner थोड़ा जल्दी लेने की कोशिश करें — एक हफ्ते में फर्क नज़र आएगा। आपकी शाम की routine कैसी रहती है?"
+"PCOS में यह बहुत common है। Body में कोई problem नहीं है, बस थोड़ा अलग approach चाहिए। सुबह उठकर energy कैसी रहती है आपकी?"
+INST;
+    }
+
+    private function hinglishInstruction(): string
+    {
+        return <<<'INST'
+The user is writing in Hinglish — Roman Hindi mixed naturally with English. Reply in the same Hinglish style.
+
+Tone: Professional and warm — like a knowledgeable health coach who respects the user, not a casual friend.
+- Use "aap" not "tum" — always maintain respectful address
+- Hindi sentence structure with English health terms where natural
+- Short, clear sentences — no long paragraphs
+- Health/medical terms stay in English (blood sugar, protein, calories, thyroid, PCOS)
+- Connecting words in Hindi: "toh", "lekin", "kyunki", "isliye", "aur"
+- Do NOT use overly casual words like "yaar", "bhai", "chill karo", "chalo isko theek karte hain"
+- Empathy should be warm but composed — not dramatic or over-familiar
+
+Good Hinglish response examples:
+"Raat ko late khana aur blood sugar ka seedha connection hota hai. Kal se dinner 8 baje tak karne ki koshish karein — ek hafte mein fark nazar aayega. Aapki evening routine kaisi rehti hai?"
+"PCOS mein yeh bahut common hai. Body mein koi problem nahi hai, bas thoda alag approach chahiye. Subah uthke energy kaisi rehti hai aapki?"
+"Blood sugar thoda zyada hai toh ghabraiye mat — yeh manage ho sakta hai. Aaj ke khane mein kya tha, bata sakte hain?"
+"Yeh fatigue usually blood sugar ke fluctuation se hoti hai. Lunch mein thoda protein shamil karein — paneer ya dal bhi kaam karega. Har meal ke baad hota hai ya kuch specific meals ke baad?"
+
+Bad Hinglish — never do this:
+"Yaar chinta mat karo, chalo isko theek karte hain."
+"Acha suno, aap bilkul theek ho jaoge."
+"I am understanding your concern about your blood sugar levels."
+INST;
+    }
+
+    private function englishInstruction(): string
+    {
+        return <<<'INST'
+Reply in English.
+
+English tone rules:
+- Professional and warm — like a knowledgeable health coach who genuinely cares, not a casual friend
+- Short sentences, easy to read
+- Do NOT sound like a health website, medical report, or AI assistant
+- No formal openers, no bullet points in replies
+- Empathy should be composed and respectful — not over-familiar
+
+Good English response examples:
+"Managing blood sugar with a busy schedule is genuinely hard. The one thing that helps most is keeping meal gaps under 4 hours — even a small snack counts. How does your afternoon usually look?"
+"That kind of fatigue after meals is usually a blood sugar spike. Adding a small protein to your lunch can help — even a handful of nuts makes a difference. Has this been happening after every meal or just certain ones?"
+INST;
     }
 
     private function getLanguageRequestInstruction(string $langCode): string
     {
         $lang = str_replace('-request', '', $langCode);
         return match($lang) {
-            'hindi'    => 'The user wants to chat in Hindi. From now on reply in Hindi (Devanagari script). Acknowledge this warmly.',
-            'hinglish' => 'The user wants to chat in Hinglish. Reply in casual Hinglish (Roman Hindi mixed with English).',
-            'tamil'    => 'The user wants to chat in Tamil. Reply in Tamil.',
-            'telugu'   => 'The user wants to chat in Telugu. Reply in Telugu.',
-            'english'  => 'The user wants to chat in English. Reply in English.',
+            'hindi'    => $this->hindiInstruction() . "\n\nThe user just asked to switch to Hindi. Acknowledge this warmly in Hindi, then continue.",
+            'hinglish' => $this->hinglishInstruction() . "\n\nThe user just asked to switch to Hinglish. Acknowledge this naturally in Hinglish, then continue.",
+            'tamil'    => 'The user wants to chat in Tamil. Reply in Tamil. Keep the same warm, conversational tone.',
+            'telugu'   => 'The user wants to chat in Telugu. Reply in Telugu. Keep the same warm, conversational tone.',
+            'english'  => $this->englishInstruction() . "\n\nThe user just asked to switch to English. Acknowledge this naturally, then continue.",
             default    => 'Reply in the language the user prefers.',
         };
     }

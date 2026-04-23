@@ -7,40 +7,59 @@ use Illuminate\Support\Facades\Log;
 
 class LLMRouter
 {
-    private GeminiService $gemini;
-    private ChatGPTService $chatgpt;
-
     public function __construct(
-        GeminiService $gemini,
-        ChatGPTService $chatgpt
-    ) {
-        $this->gemini  = $gemini;
-        $this->chatgpt = $chatgpt;
-    }
+        private GeminiService       $gemini,
+        private ChatGPTService      $chatgpt,
+        private OpenRouterService   $openrouter,
+    ) {}
 
     public function chat(string $prompt, array $history = []): string
     {
-        $config = $this->getActiveConfig();
+        $graceful = "I'm having a little trouble connecting right now \uD83C\uDF38 Give me a moment and try again \u2014 I'm here for you!";
+
+        try {
+            $config = $this->getActiveConfig();
+        } catch (\Exception $e) {
+            Log::error('LLM config unavailable: ' . $e->getMessage());
+            return $graceful;
+        }
 
         try {
             return match($config->provider) {
-                'gemini'  => $this->gemini->chat($prompt, $history),
-                'chatgpt' => $this->chatgpt->chat($prompt, $history),
-                default   => $this->gemini->chat($prompt, $history),
+                'gemini'      => $this->gemini->chat($prompt, $history),
+                'chatgpt'     => $this->chatgpt->chat($prompt, $history),
+                'openrouter'  => $this->openrouter->chat($prompt, $history),
+                default       => $this->gemini->chat($prompt, $history),
             };
+        } catch (\Illuminate\Http\Client\ConnectionException $e) {
+            Log::warning('LLM primary timed out (' . $config->provider . '), trying fallback: ' . $e->getMessage());
         } catch (\Exception $e) {
             Log::error('LLM primary failed (' . $config->provider . '): ' . $e->getMessage());
+        }
 
+        // Fallback chain: try each other provider in order
+        $fallbacks = $this->getFallbackOrder($config->provider);
+
+        foreach ($fallbacks as $provider) {
             try {
-                if ($config->provider === 'gemini') {
-                    return $this->chatgpt->chat($prompt, $history);
-                }
-                return $this->gemini->chat($prompt, $history);
-            } catch (\Exception $fallbackEx) {
-                Log::error('LLM fallback also failed: ' . $fallbackEx->getMessage());
-                return $this->fallbackResponse();
+                Log::info('LLM trying fallback provider: ' . $provider);
+                return match($provider) {
+                    'gemini'     => $this->gemini->chat($prompt, $history),
+                    'chatgpt'    => $this->chatgpt->chat($prompt, $history),
+                    'openrouter' => $this->openrouter->chat($prompt, $history),
+                };
+            } catch (\Exception $e) {
+                Log::error('LLM fallback (' . $provider . ') failed: ' . $e->getMessage());
             }
         }
+
+        return $graceful;
+    }
+
+    private function getFallbackOrder(string $primary): array
+    {
+        $all = ['gemini', 'chatgpt', 'openrouter'];
+        return array_values(array_filter($all, fn($p) => $p !== $primary));
     }
 
     public function analyzeImage(
@@ -53,7 +72,7 @@ class LLMRouter
 
     public function getActiveConfig(): LlmConfig
     {
-        $config = cache()->remember('llm_active_config', 60, fn() =>
+        $config = cache()->remember('llm_active_config', 30, fn() =>
             LlmConfig::where('is_active', 1)->first()
         );
 
@@ -64,9 +83,8 @@ class LLMRouter
         return $config;
     }
 
-    private function fallbackResponse(): string
+    public static function clearCache(): void
     {
-        return "I'm having a little trouble right now. " .
-               "Please try again in a moment. I'm here for you! 💙";
+        cache()->forget('llm_active_config');
     }
 }

@@ -19,23 +19,31 @@ class ApiConfigService
 
     public static function all(string $serviceName): array
     {
+        // otp_mode must NEVER be cached — always read fresh from DB
+        if ($serviceName === 'otp_mode') {
+            return static::fetchFromDb($serviceName);
+        }
+
         try {
             return Cache::remember("api_config_{$serviceName}", 300, function () use ($serviceName) {
                 return static::fetchFromDb($serviceName);
             });
         } catch (\Exception $e) {
-            // Cache unavailable (e.g. DB cache table missing) — read directly
             return static::fetchFromDb($serviceName);
         }
     }
 
     private static function fetchFromDb(string $serviceName): array
     {
-        $service = ApiService::where('service_name', $serviceName)
-            ->where('is_active', 1)
-            ->first();
+        $query = ApiService::where('service_name', $serviceName);
 
-        return $service?->config ?? [];
+        // otp_mode is config-only — read regardless of is_active
+        // pinecone is infrastructure — read regardless of is_active so vector ops always work
+        if (!in_array($serviceName, ['otp_mode', 'pinecone'])) {
+            $query->where('is_active', 1);
+        }
+
+        return $query->first()?->config ?? [];
     }
 
     public static function forget(string $serviceName): void

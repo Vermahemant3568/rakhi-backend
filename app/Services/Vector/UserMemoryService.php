@@ -25,36 +25,46 @@ class UserMemoryService
         if (empty($vector)) return;
 
         $namespace = "user-{$user->id}";
-        $id        = "msg-" . $user->id . "-" . time() . "-" . rand(100, 999);
+        $id        = "msg-{$user->id}-" . uniqid('', true);
 
         $this->pinecone->upsert(
             namespace: $namespace,
             id: $id,
             vector: $vector,
             metadata: array_merge([
-                'user_id' => $user->id,
-                'role'    => $role,
-                'message' => substr($message, 0, 500),
-                'date'    => now()->toDateString(),
+                'user_id'    => $user->id,
+                'role'       => $role,
+                'message'    => substr($message, 0, 500),
+                'date'       => now()->toDateString(),
+                'created_ts' => now()->timestamp,
             ], $metadata)
         );
     }
 
-    public function recall(User $user, string $query, int $limit = 5): array
+    public function recall(User $user, string $query, int $limit = 5, string $type = 'all'): array
     {
         $vector = $this->embedder->embed($query);
         if (empty($vector)) return [];
 
+        $filter = [];
+        if ($type === 'short_term') {
+            // Only messages from last 24 hours
+            $filter = ['created_ts' => ['$gte' => now()->subDay()->timestamp]];
+        } elseif ($type === 'long_term') {
+            // Only messages older than 24 hours
+            $filter = ['created_ts' => ['$lt' => now()->subDay()->timestamp]];
+        }
+
         $matches = $this->pinecone->query(
             namespace: "user-{$user->id}",
             vector: $vector,
-            topK: $limit
+            topK: $limit,
+            filter: $filter
         );
 
-        // Filter low-relevance matches (score < 0.75)
         return array_values(array_map(
             fn($m) => $m['metadata']['message'] ?? '',
-            array_filter($matches, fn($m) => ($m['score'] ?? 0) >= 0.75)
+            array_filter($matches, fn($m) => ($m['score'] ?? 0) >= 0.65)
         ));
     }
 
