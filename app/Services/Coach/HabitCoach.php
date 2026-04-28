@@ -8,14 +8,14 @@ use App\Models\UserStreak;
 
 class HabitCoach extends BaseCoach
 {
-    public function respond(User $user, string $message, int $sessionId): string
+    public function respond(User $user, string $message, int $sessionId, string $inputMode = 'chat'): string
     {
         $user->loadMissing(['goals', 'language', 'coaches']);
 
         $habitContext    = $this->buildHabitContext($user, $message);
         $enrichedMessage = $this->enrichMessage($message, $habitContext);
 
-        return parent::respond($user, $enrichedMessage, $sessionId);
+        return parent::respond($user, $enrichedMessage, $sessionId, $inputMode);
     }
 
     // ─────────────────────────────────────────────────────────────

@@ -18,3 +18,8 @@ Schedule::command('rakhi:subscription-check')
 Schedule::command('rakhi:proactive-followup')
     ->everyThirtyMinutes()
     ->timezone('Asia/Kolkata');
+
+// Recover users stuck in plan generating state with no active queue job
+Schedule::command('rakhi:recover-stuck-plans')
+    ->everyFifteenMinutes()
+    ->timezone('Asia/Kolkata');

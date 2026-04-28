@@ -109,8 +109,20 @@ Understand real-life language:
 - "type 2 hai" or "t2d" or "metformin leta hoon" → diabetes_type: type2
 - "gestational diabetes" or "pregnancy mein sugar" → diabetes_type: gestational
 - "prediabetes" or "borderline sugar" or "pre-diabetic" → diabetes_type: prediabetes
+- "first trimester" or "week 8" or "8 weeks pregnant" → current_stage: first trimester
+- "second trimester" or "week 20" → current_stage: second trimester
+- "third trimester" or "week 35" → current_stage: third trimester
+- "early weight loss" or "just started" or "1 hafte se" → current_stage: early phase
+- "frustrated" or "koi fayda nahi" or "giving up" → emotional_state: frustrated
+- "motivated" or "josh mein hoon" → emotional_state: motivated
+- "anxious" or "ghabra raha" → emotional_state: anxious
+- "nahi follow kar paya" or "skipped" or "bhool gaya" → adherence_pattern: struggling
+- "roz kar raha hoon" or "consistent" → adherence_pattern: consistent
+- "thoda better" or "improving" → adherence_pattern: improving
 
 For diabetes_type: only store one of: type1, type2, gestational, prediabetes
+For emotional_state: only store one of: motivated, frustrated, anxious, low energy, sad, stressed, okay
+For adherence_pattern: only store one of: consistent, struggling, improving, irregular
 
 Message:
 "{$message}"
@@ -149,10 +161,16 @@ Rules:
 - Capture patterns (late eating, low activity, stress etc.)
 - For diabetes_type: detect from signals like "type 1", "t1d", "insulin dependent", "type 2", "t2d", "metformin", "gestational", "prediabetes"
 - diabetes_type value must be one of: type1, type2, gestational, prediabetes
+- For current_stage: detect trimester (first/second/third), weight loss phase (early/mid/plateau), PCOS stage, etc.
+- For emotional_state: detect from tone and words — one of: motivated, frustrated, anxious, low energy, sad, stressed, okay
+- For adherence_pattern: detect from consistency signals — one of: consistent, struggling, improving, irregular
 
 Return ONLY JSON like:
 {
  "diabetes_type":"type2",
+ "current_stage":"early weight loss phase",
+ "emotional_state":"frustrated",
+ "adherence_pattern":"struggling",
  "diet_habit":"late night eating, outside food",
  "activity_level":"very low, mostly sitting",
  "sleep_pattern":"5-6 hours, poor sleep",

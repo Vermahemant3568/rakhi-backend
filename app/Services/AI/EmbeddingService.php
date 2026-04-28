@@ -16,17 +16,27 @@ class EmbeddingService
     {
         if (empty(trim($text))) return [];
 
+        // Try Gemini first (768-dim), fall back to ChatGPT
+        // If neither is active/configured, return empty silently
         try {
-            // Always use Gemini for embeddings — consistent 768-dim vectors.
-            // Switching providers mid-way causes dimension mismatch in Pinecone.
-            return $this->gemini->embed($text);
-        } catch (\Exception $e) {
-            try {
-                return $this->chatgpt->embed($text);
-            } catch (\Exception $fallback) {
-                Log::warning('EmbeddingService failed (non-fatal): ' . $fallback->getMessage());
-                return [];
+            $geminiActive = LlmConfig::where('provider', 'gemini')->where('is_active', 1)->exists();
+            if ($geminiActive) {
+                return $this->gemini->embed($text);
             }
+        } catch (\Exception $e) {
+            Log::warning('EmbeddingService Gemini failed: ' . $e->getMessage());
         }
+
+        try {
+            $chatgptActive = LlmConfig::where('provider', 'chatgpt')->where('is_active', 1)->exists();
+            if ($chatgptActive) {
+                return $this->chatgpt->embed($text);
+            }
+        } catch (\Exception $e) {
+            Log::warning('EmbeddingService ChatGPT failed: ' . $e->getMessage());
+        }
+
+        // No embedding provider active — skip silently
+        return [];
     }
 }

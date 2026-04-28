@@ -2,64 +2,49 @@
 
 namespace App\Services\Voice;
 
-use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Log;
 use App\Services\ApiConfigService;
+use Illuminate\Support\Facades\Log;
 
+/**
+ * STTService acts as the dynamic router for Speech-to-Text providers.
+ * Keeping the class name STTService preserves the existing VoiceController binding.
+ *
+ * Admin panel: API Manager → STT Provider Settings → provider = groq | google
+ */
 class STTService
 {
-    private function apiKey(): string
+    public function __construct(
+        private GoogleSTTService $google,
+        private GroqSTTService   $groq,
+    ) {}
+
+    public function transcribe(string $audioBase64, string $mimeType, string $languageCode = 'en-IN'): string
     {
-        return ApiConfigService::get('google_stt', 'api_key', config('services.google.api_key'));
-    }
+        $provider = $this->activeProvider();
 
-    public function transcribe(
-        string $audioBase64,
-        string $mimeType,
-        string $languageCode = 'en-IN'
-    ): string {
-        try {
-            $encoding = $this->getEncoding($mimeType);
-
-            $response = Http::timeout(30)->post(
-                "https://speech.googleapis.com/v1/speech:recognize?key={$this->apiKey()}",
-                [
-                    'config' => [
-                        'encoding'                  => $encoding,
-                        'sampleRateHertz'           => 16000,
-                        'languageCode'              => $languageCode,
-                        'model'                     => 'latest_long',
-                        'alternativeLanguageCodes'  => ['hi-IN', 'en-IN'],
-                        'enableAutomaticPunctuation'=> true,
-                    ],
-                    'audio' => [
-                        'content' => $audioBase64,
-                    ],
-                ]
-            );
-
-            if ($response->failed()) {
-                Log::error('STT failed: ' . $response->body());
-                return '';
+        if ($provider === 'groq') {
+            if (!$this->groq->isConfigured()) {
+                Log::warning('STTService: Groq selected but not configured — falling back to Google');
+                return $this->google->transcribe($audioBase64, $mimeType, $languageCode);
             }
 
-            return $response->json('results.0.alternatives.0.transcript') ?? '';
+            $text = $this->groq->transcribe($audioBase64, $mimeType, $languageCode);
 
-        } catch (\Exception $e) {
-            Log::error('STT Exception: ' . $e->getMessage());
-            return '';
+            if ($text === '') {
+                Log::warning('STTService: Groq transcription empty — falling back to Google');
+                return $this->google->transcribe($audioBase64, $mimeType, $languageCode);
+            }
+
+            return $text;
         }
+
+        // Default: Google
+        return $this->google->transcribe($audioBase64, $mimeType, $languageCode);
     }
 
-    private function getEncoding(string $mimeType): string
+    public function activeProvider(): string
     {
-        return match($mimeType) {
-            'audio/webm' => 'WEBM_OPUS',
-            'audio/ogg'  => 'OGG_OPUS',
-            'audio/wav'  => 'LINEAR16',
-            'audio/mp3'  => 'MP3',
-            'audio/flac' => 'FLAC',
-            default      => 'WEBM_OPUS',
-        };
+        $config = ApiConfigService::all('stt_provider');
+        return strtolower($config['provider'] ?? 'google');
     }
 }

@@ -12,7 +12,7 @@ class MealVisionService
 
     public function __construct()
     {
-        $this->apiKey   = config('services.gemini.api_key');
+        $this->apiKey   = config('services.gemini.api_key') ?? '';
         $this->endpoint = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
     }
 

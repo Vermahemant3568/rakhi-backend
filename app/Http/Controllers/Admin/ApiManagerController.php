@@ -86,6 +86,10 @@ class ApiManagerController extends Controller
             'msg91'                    => $this->testMsg91($apiService),
             'fast2sms'                 => $this->testFast2Sms($apiService),
             'google_stt', 'google_tts' => $this->testGoogle($apiService),
+            'elevenlabs_tts'           => $this->testElevenLabs($apiService),
+            'voice_provider'           => $this->testVoiceProvider($apiService),
+            'stt_provider'             => $this->testSttProvider($apiService),
+            'groq_stt'                 => $this->testGroqStt($apiService),
             'pinecone'                 => $this->testPinecone($apiService),
             'razorpay'                 => $this->testRazorpay($apiService),
             'firebase'                 => $this->testFirebase($apiService),
@@ -310,6 +314,89 @@ class ApiManagerController extends Controller
         }
 
         return ['success' => true, 'message' => 'Firebase configured with project: ' . $projectId];
+    }
+
+    private function testElevenLabs(ApiService $apiService): array
+    {
+        $apiKey = $apiService->config['api_key'] ?? '';
+
+        if (empty($apiKey)) {
+            return ['success' => false, 'message' => 'ElevenLabs API Key is required.'];
+        }
+
+        try {
+            $response = Http::timeout(8)
+                ->withHeaders(['xi-api-key' => $apiKey])
+                ->get('https://api.elevenlabs.io/v1/user');
+
+            if ($response->successful()) {
+                $tier = $response->json('subscription.tier') ?? 'unknown';
+                return ['success' => true, 'message' => "ElevenLabs connected. Plan: {$tier}"];
+            }
+
+            if ($response->status() === 401) {
+                return ['success' => false, 'message' => 'Invalid ElevenLabs API Key.'];
+            }
+
+            return ['success' => false, 'message' => 'ElevenLabs returned HTTP ' . $response->status()];
+        } catch (\Exception $e) {
+            return ['success' => false, 'message' => 'Could not reach ElevenLabs: ' . $e->getMessage()];
+        }
+    }
+
+    private function testVoiceProvider(ApiService $apiService): array
+    {
+        $provider = strtolower($apiService->config['provider'] ?? '');
+
+        if (!in_array($provider, ['google', 'elevenlabs'])) {
+            return ['success' => false, 'message' => 'Invalid provider. Use: google or elevenlabs'];
+        }
+
+        return ['success' => true, 'message' => "Active TTS provider set to: {$provider}"];
+    }
+
+    private function testSttProvider(ApiService $apiService): array
+    {
+        $provider = strtolower($apiService->config['provider'] ?? '');
+
+        if (!in_array($provider, ['google', 'groq'])) {
+            return ['success' => false, 'message' => 'Invalid STT provider. Use: google or groq'];
+        }
+
+        return ['success' => true, 'message' => "Active STT provider set to: {$provider}"];
+    }
+
+    private function testGroqStt(ApiService $apiService): array
+    {
+        $apiKey = $apiService->config['api_key'] ?? '';
+
+        if (empty($apiKey)) {
+            return ['success' => false, 'message' => 'Groq API Key is required.'];
+        }
+
+        try {
+            $response = Http::timeout(8)
+                ->withHeaders(['Authorization' => 'Bearer ' . $apiKey])
+                ->get('https://api.groq.com/openai/v1/models');
+
+            if ($response->successful()) {
+                $models = collect($response->json('data') ?? [])
+                    ->pluck('id')
+                    ->filter(fn($m) => str_contains($m, 'whisper'))
+                    ->values();
+
+                $modelList = $models->isNotEmpty() ? $models->implode(', ') : 'connected';
+                return ['success' => true, 'message' => "Groq STT connected. Whisper models: {$modelList}"];
+            }
+
+            if ($response->status() === 401) {
+                return ['success' => false, 'message' => 'Invalid Groq API Key.'];
+            }
+
+            return ['success' => false, 'message' => 'Groq returned HTTP ' . $response->status()];
+        } catch (\Exception $e) {
+            return ['success' => false, 'message' => 'Could not reach Groq API: ' . $e->getMessage()];
+        }
     }
 
     private function testOtpMode(ApiService $apiService): array

@@ -48,6 +48,15 @@ class GeminiService
             'parts' => [['text' => $prompt]]
         ];
 
+        // Sanitize all content to valid UTF-8 before encoding
+        $contents = array_map(function ($item) {
+            $item['parts'] = array_map(function ($part) {
+                $part['text'] = mb_convert_encoding($part['text'], 'UTF-8', 'UTF-8');
+                return $part;
+            }, $item['parts']);
+            return $item;
+        }, $contents);
+
         $payload = [
             'contents'         => $contents,
             'generationConfig' => [

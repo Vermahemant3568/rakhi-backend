@@ -7,14 +7,14 @@ use App\Models\UserMemory;
 
 class PregnancyCoach extends BaseCoach
 {
-    public function respond(User $user, string $message, int $sessionId): string
+    public function respond(User $user, string $message, int $sessionId, string $inputMode = 'chat'): string
     {
         $user->loadMissing(['goals', 'language', 'coaches']);
 
         $pregnancyContext = $this->buildPregnancyContext($user, $message);
         $enrichedMessage  = $this->enrichMessage($message, $pregnancyContext);
 
-        return parent::respond($user, $enrichedMessage, $sessionId);
+        return parent::respond($user, $enrichedMessage, $sessionId, $inputMode);
     }
 
     private function buildPregnancyContext(User $user, string $message): array

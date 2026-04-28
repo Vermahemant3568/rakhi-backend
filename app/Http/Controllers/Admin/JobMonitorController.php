@@ -114,6 +114,48 @@ class JobMonitorController extends Controller
         return response()->json(['success' => true, 'message' => "{$count} stale jobs cleared"]);
     }
 
+    public function resetStuckPlan(Request $request): JsonResponse
+    {
+        $request->validate(['user_id' => 'required|integer']);
+
+        $user = \App\Models\User::findOrFail($request->user_id);
+
+        if ($user->plan_generation_state !== 'generating') {
+            return response()->json([
+                'success' => false,
+                'message' => "User is not stuck (current state: {$user->plan_generation_state})",
+            ], 400);
+        }
+
+        $user->update(['plan_generation_state' => 'failed']);
+
+        // Notify user in their latest chat session
+        $session = \App\Models\ChatSession::where('user_id', $user->id)
+            ->where('session_type', 'chat')
+            ->latest('id')
+            ->first();
+
+        if ($session) {
+            \App\Models\ChatMessage::create([
+                'session_id'   => $session->id,
+                'user_id'      => $user->id,
+                'role'         => 'rakhi',
+                'message'      => 'Your plan generation timed out. You can retry it from the Plans screen. 🙏',
+                'message_type' => 'text',
+            ]);
+        }
+
+        Log::info('Admin manually reset stuck plan', [
+            'user_id'    => $user->id,
+            'admin_id'   => auth()->id(),
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => "User {$user->first_name}'s plan state reset to failed. They can now retry.",
+        ]);
+    }
+
     private function formatJob(object $job): array
     {
         $payload = json_decode($job->payload, true);

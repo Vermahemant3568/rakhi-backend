@@ -7,7 +7,7 @@ use App\Models\UserMemory;
 
 class DiabetesCoach extends BaseCoach
 {
-    public function respond(User $user, string $message, int $sessionId): string
+    public function respond(User $user, string $message, int $sessionId, string $inputMode = 'chat'): string
     {
         $user->loadMissing(['goals', 'language', 'coaches']);
 
@@ -17,7 +17,7 @@ class DiabetesCoach extends BaseCoach
         // Store confirmed diabetes type into memory if freshly detected this turn
         $this->persistDiabetesTypeIfNew($user, $ctx);
 
-        $response = parent::respond($user, $enrichedMessage, $sessionId);
+        $response = parent::respond($user, $enrichedMessage, $sessionId, $inputMode);
 
         // Strip stiff clinical English that breaks warm Hinglish tone
         $response = str_ireplace(

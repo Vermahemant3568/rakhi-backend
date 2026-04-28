@@ -19,14 +19,44 @@ class PromptEngine
         private SentimentAnalyzer $sentimentAnalyzer,
     ) {}
 
+    /**
+     * Voice system prompt — same full intelligence as chat, voice rules appended.
+     * NOT a simplified version. Same context, same memory, same personality.
+     * Extra parameters (sessionScript, coachProfile, emotionalContext) are accepted
+     * for forward-compatibility but the core prompt is built by buildSystemPrompt.
+     */
+    public function buildVoiceSystemPrompt(
+        User $user,
+        Coach $coach,
+        string $userMessage = '',
+        string $sessionLanguage = 'en',
+        string $sessionScript = 'latin',
+        string $lastAiResponse = '',
+        array $coachProfile = [],
+        array $emotionalContext = []
+    ): string {
+        return $this->buildSystemPrompt(
+            user:                   $user,
+            coach:                  $coach,
+            userMessage:            $userMessage,
+            sessionLanguage:        $sessionLanguage,
+            isReturning:            false,
+            lastInteractionSummary: '',
+            lastAiResponse:         $lastAiResponse,
+        );
+    }
+
     public function buildSystemPrompt(
         User $user,
         Coach $coach,
         string $userMessage = '',
         string $sessionLanguage = 'en',
+        string $sessionScript = 'latin',
         bool $isReturning = false,
         string $lastInteractionSummary = '',
-        string $lastAiResponse = ''
+        string $lastAiResponse = '',
+        array $coachProfile = [],
+        array $emotionalContext = []
     ): string {
         $user->loadMissing(['goals', 'language']);
 
@@ -39,16 +69,20 @@ class PromptEngine
         $primaryGoal = $user->goals->pluck('name')->first() ?? 'general wellness';
         $diet        = $user->diet_preference ?? 'not specified';
 
-        // Detect language
+        // ── Language: detect from current message, fall back to session language
+        // NEVER flip back to 'en' if session already has a detected language
         $langCode = $userMessage ? $this->languageDetector->detect($userMessage) : 'en';
         if ($langCode === 'en' && $sessionLanguage !== 'en') {
             $langCode = $sessionLanguage;
         }
         $langInstruction = $this->languageDetector->getLanguageInstruction($langCode);
 
+        // ── Is this a brand-new user with no conversation history?
+        $isNewUser = !$isReturning && empty($lastAiResponse) && empty($lastInteractionSummary);
+
         // Detect emotion
-        $mood      = $userMessage ? $this->moodAnalyzer->analyze($userMessage) : 'okay';
-        $sentiment = $userMessage ? $this->sentimentAnalyzer->analyze($userMessage) : 'neutral';
+        $mood        = $userMessage ? $this->moodAnalyzer->analyze($userMessage) : 'okay';
+        $sentiment   = $userMessage ? $this->sentimentAnalyzer->analyze($userMessage) : 'neutral';
         $emotionLine = $this->buildEmotionalContext($mood, $sentiment);
 
         // Load active RakhiRules
@@ -75,15 +109,19 @@ class PromptEngine
                 '{{last_interaction_summary}}'   => $lastInteractionSummary ?: 'No prior context.',
             ]);
 
-            // Append dynamic emotion + language context that changes per message
-            $antiRepeat = $this->buildAntiRepetitionBlock($lastAiResponse);
-            return $content . "\n\n━━━━━━━━━━━ CURRENT MESSAGE CONTEXT ━━━━━━━━━━━\n\nEmotion: {$emotionLine}\nLanguage: {$langInstruction}{$antiRepeat}";
+            $antiRepeat  = $this->buildAntiRepetitionBlock($lastAiResponse);
+            $newUserBlock = $isNewUser ? $this->buildNewUserBlock() : '';
+            return $content
+                . "\n\n━━━━━━━━━━━ CURRENT MESSAGE CONTEXT ━━━━━━━━━━━\n\nEmotion: {$emotionLine}\nLanguage: {$langInstruction}{$newUserBlock}{$antiRepeat}";
         }
 
         // Fallback: hardcoded prompt
         $returningNote = $isReturning ? "\n- This is a RETURNING user. Do NOT use first-time greetings." : '';
-        $lastCtx = $lastInteractionSummary ? "\nLast interaction: {$lastInteractionSummary}" : '';
-        return $this->hardcodedSystemPrompt($firstName, $primaryGoal, $goals, $emotionLine, $langInstruction, $returningNote, $lastCtx, $lastAiResponse);
+        $lastCtx       = $lastInteractionSummary ? "\nLast interaction: {$lastInteractionSummary}" : '';
+        return $this->hardcodedSystemPrompt(
+            $firstName, $primaryGoal, $goals, $emotionLine,
+            $langInstruction, $returningNote, $lastCtx, $lastAiResponse, $isNewUser
+        );
     }
 
     public function buildUserPrompt(
@@ -96,7 +134,10 @@ class PromptEngine
         array $structuredMemory = [],
         array $crossSessionHistory = [],
         array $consultationNotes = [],
-        string $lastAiResponse = ''
+        string $lastAiResponse = '',
+        string $msgType = 'simple',
+        array $emotionalContext = [],
+        string $inputMode = 'chat'
     ): string {
 
         $parts = [];
@@ -106,7 +147,7 @@ class PromptEngine
             $parts[] = "Last response:\n" . $this->shorten($lastAiResponse, 300) . "\n\nInstruction: Do NOT repeat, reuse, or echo anything from the last response above. Use different wording, a new angle, or ask a follow-up question.";
         }
 
-        // 1. User's health context (only priority keys, already filtered by ContextBuilder)
+        // 1. User's confirmed health context (only use what user explicitly told us)
         if (!empty($structuredMemory)) {
             $lines = [];
             foreach ($structuredMemory as $k => $v) {
@@ -116,7 +157,8 @@ class PromptEngine
                 }
             }
             if (!empty($lines)) {
-                $parts[] = 'About this user: ' . implode(' | ', $lines);
+                $parts[] = "CONFIRMED user data (user explicitly shared this — you may reference it naturally, but do NOT add details they never mentioned):\n"
+                    . implode(' | ', $lines);
             }
         }
 
@@ -217,28 +259,86 @@ class PromptEngine
         string $langInstruction,
         string $returningNote = '',
         string $lastCtx = '',
-        string $lastAiResponse = ''
+        string $lastAiResponse = '',
+        bool   $isNewUser = false
     ): string {
-        $antiRepeat = $this->buildAntiRepetitionBlock($lastAiResponse);
+        $antiRepeat   = $this->buildAntiRepetitionBlock($lastAiResponse);
+        $newUserBlock = $isNewUser ? $this->buildNewUserBlock() : '';
+
         return <<<PROMPT
-You are Rakhi — a warm, knowledgeable Indian health coach. Professional, empathetic, human.
+You are Rakhi — a warm, experienced Indian health coach. You are NOT a chatbot.
+You speak like a real human, not a system. You understand users through their words, emotions, and context.
 
-User: {$firstName} | Goal: {$primaryGoal}{$lastCtx}
+User first name: {$firstName} | Goal area: {$primaryGoal}{$lastCtx}
 
-RULES:{$returningNote}
-- Acknowledge before advising. Empathy first, practical second.
-- ONE question per reply. 2–3 sentences max.
-- Never repeat the same opener or structure as your last response.
-- Never use bullet points, headers, or numbered lists in replies.
-- Never say: "Absolutely!", "Great question!", "Thank you for sharing", "I understand your concern".
-- Reference what you already know about the user before asking for new info.
-- Sound like a real person, not a health website.
+━━━━━━━━━━━ CORE BEHAVIOR ━━━━━━━━━━━
+Speak like a real person, not like an AI or health article.
+Be calm, friendly, and slightly conversational.
+Focus on understanding first, then guiding.
+Keep responses short and natural — 1 to 3 sentences.
+ONE question per reply. Never two at once.
+Vary how you start each reply — never repeat the same opener twice.
+
+━━━━━━━━━━━ NO ASSUMPTIONS (CRITICAL) ━━━━━━━━━━━
+NEVER assume anything the user has not explicitly told you.
+Only use what the user has said or confirmed stored data.
+If something is unknown — ASK instead of guessing.
+Wrong: "You have had diabetes for 7 years"
+Right: "Aapko diabetes kab se hai?"
+
+━━━━━━━━━━━ WHAT YOU MUST NEVER DO ━━━━━━━━━━━
+- NEVER use bullet points, numbered lists, or section headers in replies.
+- NEVER start with: "Absolutely!", "Certainly!", "Of course!", "Great question!", "That's wonderful!"
+- NEVER say: "I understand your concern", "Thank you for sharing", "That makes sense", "I completely understand"
+- NEVER sound like a health website, brochure, or AI assistant.
+- NEVER give long explanations or dump multiple tips at once.
+- NEVER ask more than one question in a single reply.
+- NEVER assume duration, habits, lifestyle, or history the user has not shared.
+- NEVER switch language mid-response — pick one style and stay consistent.
+- NEVER repeat the same sentence structure or opening style as your last response.
+
+━━━━━━━━━━━ WHAT YOU MUST ALWAYS DO ━━━━━━━━━━━
+- Acknowledge what the user said before moving to advice.
+- If the user is emotional or struggling — acknowledge that FIRST, before any advice.
+- Give one clear, practical suggestion tied to their specific situation.
+- Ask one natural follow-up question to keep the conversation going.
+- Reference only what the user has explicitly shared in this conversation.
+- If user corrects you — accept it naturally, do not defend.{$returningNote}
+
+━━━━━━━━━━━ CONTEXT USAGE ━━━━━━━━━━━
+You receive emotional signals, structured memory, recent history, and coach profile.
+Use them intelligently — refer naturally, do NOT dump or repeat them.
+Example: "kal aapne bola tha energy low thi — aaj kaisa feel ho raha hai?"
+
+━━━━━━━━━━━ EMOTIONAL INTELLIGENCE ━━━━━━━━━━━
+If user expresses stress, fatigue, or confusion — acknowledge first, then respond.
+Example: "hmm samajh aa raha hai… thoda exhausting lag raha hoga"
 
 EMOTION: {$emotionLine}
 
-LANGUAGE: {$langInstruction}
-{$antiRepeat}
+━━━━━━━━━━━ LANGUAGE LOCK ━━━━━━━━━━━
+{$langInstruction}{$newUserBlock}{$antiRepeat}
 PROMPT;
+    }
+
+    /**
+     * Injected for brand-new users with no conversation history.
+     * Prevents Rakhi from acting like she already knows the user.
+     */
+    private function buildNewUserBlock(): string
+    {
+        return <<<'BLOCK'
+
+
+━━━━━━━━━━━ NEW USER — FIRST CONVERSATION (CRITICAL) ━━━━━━━━━━━
+This is the very first time you are speaking with this user.
+You know NOTHING about their history, habits, duration of illness, or lifestyle.
+Do NOT reference any assumed past. Do NOT say "as we discussed" or "you mentioned before".
+Be genuinely curious — like meeting someone for the first time.
+Your job right now: understand them, not advise them.
+Wrong: "You have had diabetes for 7 years and struggle with diet."
+Right: "Samajh gayi — aapko diabetes kab se hai?"
+BLOCK;
     }
 
     private function buildAntiRepetitionBlock(string $lastAiResponse): string

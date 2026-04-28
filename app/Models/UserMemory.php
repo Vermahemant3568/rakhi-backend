@@ -20,6 +20,8 @@ class UserMemory extends Model
     public const KEYS = [
         'health_condition', // diabetes, PCOS, thyroid, BP, etc.
         'diabetes_type',    // type1, type2, gestational, prediabetes
+        'current_stage',    // trimester, early weight loss phase, PCOS stage, etc.
+        'emotional_state',  // motivated, frustrated, low energy, anxious, etc.
         'diet_habit',       // what they eat daily
         'diet_timing',      // meal timing patterns
         'activity_level',   // exercise, walking, sedentary
@@ -31,6 +33,7 @@ class UserMemory extends Model
         'challenges',       // what makes it hard for them
         'medications',      // any medicines they mentioned
         'family_context',   // relevant family info (kids, spouse)
+        'adherence_pattern',// consistent, irregular, struggling, improving
     ];
 
     public function user()

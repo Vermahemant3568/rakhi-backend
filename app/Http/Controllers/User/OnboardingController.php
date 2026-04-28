@@ -211,8 +211,9 @@ class OnboardingController extends Controller
         $user = auth()->user()->load(['goals', 'language']);
 
         $user->update([
-            'onboarding_complete' => 1,
-            'onboarding_step'     => 16,
+            'onboarding_complete'  => 1,
+            'onboarding_step'      => 16,
+            'consultation_state'   => 'pending',
         ]);
 
         // Seed UserMemory from onboarding data so Rakhi knows the user from day 1

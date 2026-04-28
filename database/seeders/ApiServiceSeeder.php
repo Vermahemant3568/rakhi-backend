@@ -96,6 +96,62 @@ class ApiServiceSeeder extends Seeder
                 ]),
                 'is_active'    => 1,
             ],
+            [
+                'service_name' => 'voice_provider',
+                'display_name' => 'TTS Provider Settings',
+                'config'       => json_encode([
+                    'provider' => 'google',
+                ]),
+                'field_labels' => json_encode([
+                    'provider' => 'Active TTS Provider (google / elevenlabs)',
+                ]),
+                'is_active'    => 1,
+            ],
+            [
+                'service_name' => 'groq_stt',
+                'display_name' => 'Groq Speech-to-Text',
+                'config'       => json_encode([
+                    'api_key'    => '',
+                    'model_name' => 'whisper-large-v3-turbo',
+                ]),
+                'field_labels' => json_encode([
+                    'api_key'    => 'Groq API Key',
+                    'model_name' => 'Model (whisper-large-v3-turbo recommended)',
+                ]),
+                'is_active'    => 0,
+            ],
+            [
+                'service_name' => 'stt_provider',
+                'display_name' => 'STT Provider Settings',
+                'config'       => json_encode([
+                    'provider' => 'google',
+                ]),
+                'field_labels' => json_encode([
+                    'provider' => 'Active STT Provider (google / groq)',
+                ]),
+                'is_active'    => 1,
+            ],
+            [
+                'service_name' => 'elevenlabs_tts',
+                'display_name' => 'ElevenLabs Text-to-Speech',
+                'config'       => json_encode([
+                    'api_key'          => '',
+                    'voice_id'         => '21m00Tcm4TlvDq8ikWAM',
+                    'model'            => 'eleven_turbo_v2_5',
+                    'stability'        => '0.5',
+                    'similarity_boost' => '0.75',
+                    'style'            => '0.0',
+                ]),
+                'field_labels' => json_encode([
+                    'api_key'          => 'ElevenLabs API Key',
+                    'voice_id'         => 'Voice ID',
+                    'model'            => 'Model (eleven_turbo_v2_5 recommended)',
+                    'stability'        => 'Stability (0.0 - 1.0)',
+                    'similarity_boost' => 'Similarity Boost (0.0 - 1.0)',
+                    'style'            => 'Style (0.0 - 1.0)',
+                ]),
+                'is_active'    => 0,
+            ],
         ]);
     }
 }

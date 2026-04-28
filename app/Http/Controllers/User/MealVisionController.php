@@ -27,6 +27,16 @@ class MealVisionController extends Controller
 
         $user = $request->user();
 
+        // Validate session ownership if session_id provided
+        if ($request->filled('session_id')) {
+            $sessionOwned = \App\Models\ChatSession::where('id', $request->session_id)
+                ->where('user_id', $user->id)
+                ->exists();
+            if (!$sessionOwned) {
+                return response()->json(['message' => 'Unauthorized'], 403);
+            }
+        }
+
         // Store image
         $path     = $request->file('image')->store("meals/{$user->id}", 's3');
         $imageUrl = Storage::disk('s3')->url($path);

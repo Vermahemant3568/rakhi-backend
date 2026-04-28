@@ -7,14 +7,14 @@ use App\Models\UserMemory;
 
 class MentalWellnessCoach extends BaseCoach
 {
-    public function respond(User $user, string $message, int $sessionId): string
+    public function respond(User $user, string $message, int $sessionId, string $inputMode = 'chat'): string
     {
         $user->loadMissing(['goals', 'language', 'coaches']);
 
         $mentalContext   = $this->buildMentalContext($user, $message);
         $enrichedMessage = $this->enrichMessage($message, $mentalContext);
 
-        return parent::respond($user, $enrichedMessage, $sessionId);
+        return parent::respond($user, $enrichedMessage, $sessionId, $inputMode);
     }
 
     // ─────────────────────────────────────────────────────────────

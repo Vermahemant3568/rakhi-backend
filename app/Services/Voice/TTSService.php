@@ -4,11 +4,12 @@ namespace App\Services\Voice;
 
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Storage;
 use App\Services\ApiConfigService;
 
 class TTSService
 {
+    private const MAX_TTS_CHARS = 300;
+
     private function apiKey(): string
     {
         return ApiConfigService::get('google_tts', 'api_key', config('services.google.api_key'));
@@ -25,10 +26,14 @@ class TTSService
 
     public function synthesize(string $text, string $languageCode = 'en-IN'): string
     {
+        $text = $this->prepareForVoice($text);
+
+        if (empty($text)) return '';
+
         try {
             $voice = $this->voiceMap[$languageCode] ?? $this->voiceMap['en-IN'];
 
-            $response = Http::timeout(30)->post(
+            $response = Http::timeout(12)->post(
                 "https://texttospeech.googleapis.com/v1/text:synthesize?key={$this->apiKey()}",
                 [
                     'input' => ['text' => $text],
@@ -39,8 +44,10 @@ class TTSService
                     ],
                     'audioConfig' => [
                         'audioEncoding' => 'MP3',
-                        'speakingRate'  => 1.0,
+                        // 0.95 = slightly slower than normal — feels more human on a phone call
+                        'speakingRate'  => 0.95,
                         'pitch'         => 0.0,
+                        'effectsProfileId' => ['handset-class-device'],
                     ],
                 ]
             );
@@ -50,16 +57,46 @@ class TTSService
                 return '';
             }
 
-            $audioContent = $response->json('audioContent');
-            $fileName     = 'voice/' . uniqid() . '.mp3';
-
-            Storage::disk('public')->put($fileName, base64_decode($audioContent));
-
-            return Storage::disk('public')->url($fileName);
+            // Return base64 directly — no disk write, no file storage
+            return $response->json('audioContent') ?? '';
 
         } catch (\Exception $e) {
             Log::error('TTS Exception: ' . $e->getMessage());
             return '';
         }
     }
+
+    // Strip markdown, emojis, truncate to max chars for fast TTS
+    private function prepareForVoice(string $text): string
+    {
+        // Remove markdown formatting
+        $text = preg_replace('/\*{1,2}([^*]+)\*{1,2}/', '$1', $text);
+        $text = preg_replace('/_{1,2}([^_]+)_{1,2}/', '$1', $text);
+        $text = preg_replace('/#{1,6}\s/', '', $text);
+        $text = preg_replace('/\[([^\]]+)\]\([^\)]+\)/', '$1', $text);
+
+        // Remove emojis — TTS reads them as "emoji" or skips awkwardly
+        $text = preg_replace('/[\x{1F300}-\x{1FFFF}]/u', '', $text);
+        $text = preg_replace('/[\x{2600}-\x{27BF}]/u', '', $text);
+
+        // Collapse multiple spaces/newlines
+        $text = preg_replace('/\s+/', ' ', $text);
+        $text = trim($text);
+
+        // Truncate at sentence boundary within MAX_TTS_CHARS
+        if (strlen($text) > self::MAX_TTS_CHARS) {
+            $cut = substr($text, 0, self::MAX_TTS_CHARS);
+            $lastPeriod = max(
+                strrpos($cut, '. '),
+                strrpos($cut, '? '),
+                strrpos($cut, '! ')
+            );
+            $text = $lastPeriod > 50
+                ? substr($text, 0, $lastPeriod + 1)
+                : $cut;
+        }
+
+        return trim($text);
+    }
+
 }

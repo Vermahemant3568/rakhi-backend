@@ -274,7 +274,7 @@ class WelcomeConsultationService
         ChatSession $session,
         User        $user,
         string      $userMessage,
-        bool        $voice = false
+        string      $inputMode = 'chat'
     ): string {
         $user->loadMissing(['goals']);
 
@@ -293,6 +293,7 @@ class WelcomeConsultationService
         $sentimentScore = $this->sentimentAnalyzer->score($userMessage);
         $sentiment      = $this->sentimentAnalyzer->analyze($userMessage);
         $distressed     = $sentimentScore <= self::EMOTIONAL_THRESHOLD;
+        $voice          = ($inputMode === 'voice');
 
         $fullHistory = ChatMessage::where('session_id', $session->id)
             ->orderBy('created_at')
@@ -362,7 +363,7 @@ class WelcomeConsultationService
         return $turns >= self::MIN_USER_TURNS && empty($missing);
     }
 
-    public function generateAllPlans(User $user, int $sessionId): void
+    public function generateAllPlans(User $user, int $sessionId, string $lang = 'en'): void
     {
         try {
             $conversation = ChatMessage::where('session_id', $sessionId)
@@ -474,86 +475,91 @@ class WelcomeConsultationService
         $nextInstr    = $nextField ? $this->nextFieldInstruction($nextField, $goal) : '';
 
         $answersBlock = $answersSummary
-            ? "\nWHAT THE USER HAS ALREADY TOLD YOU — do NOT ask about these again:\n{$answersSummary}"
+            ? "\nWHAT THE USER HAS ALREADY SHARED — do NOT ask about these again, do NOT repeat them back:\n{$answersSummary}"
             : '';
 
         $antiRepeat = $lastAI
-            ? "ANTI-REPETITION: Your last message was:\n\"{$lastAI}\"\nDo NOT repeat or rephrase it. Start from a completely fresh angle."
+            ? "ANTI-REPETITION: Your last message was:\n\"{$lastAI}\"\nDo NOT repeat, rephrase, or echo it. Start from a completely fresh angle with different wording."
             : '';
 
         $emotionalMode = $distressed
-            ? "EMOTIONAL PRIORITY: User seems stressed or upset. First acknowledge their feelings warmly (1 sentence). Then gently guide back to the next question. Never rush past emotions to collect data."
+            ? "EMOTIONAL PRIORITY: User seems stressed or upset. Acknowledge their feelings warmly in 1 sentence FIRST. Then gently continue. Never rush past emotions to collect data."
             : '';
 
         $planInstr = $ready
-            ? "ALL FIELDS COLLECTED — WRAP UP:\n"
-              . "1. Write 2 warm sentences reflecting what you've learned — be specific about their condition, lifestyle, and goal. Make them feel truly understood.\n"
-              . "2. Tell them their plan is being prepared:\n"
-              . "   English:  \"Give me just a moment… I'm putting together your personalized plan right now 😊\"\n"
-              . "   Hinglish: \"Bohot accha — main abhi aapke liye plan bana rahi hoon, thoda sa wait karein 😊\"\n"
-              . "3. On the very next line output ONLY: [GENERATE_PLANS]\n"
-              . "   Nothing after it. No emoji, no text."
+            ? "ALL FIELDS COLLECTED — WRAP UP NATURALLY:\n"
+              . "Write 1-2 warm sentences that reflect what you've learned — be specific, make them feel truly understood.\n"
+              . "Then say their plan is being prepared in one natural sentence.\n"
+              . "English example: \"Give me just a moment — I'm putting together your personalized plan right now 😊\"\n"
+              . "Hinglish example: \"Bohot accha — main abhi aapke liye plan bana rahi hoon, thoda sa wait karein 😊\"\n"
+              . "On the very next line output ONLY: [GENERATE_PLANS]\n"
+              . "Nothing after it. No emoji, no text."
             : "CONTINUE CONSULTATION:\n"
               . "Fields still needed: {$missingStr}\n"
-              . "Ask about: {$nextField}\n"
+              . "Next field to ask about: {$nextField}\n"
               . $nextInstr;
 
-        $lengthInstr = $voice
-            ? "LENGTH: 1 warm, natural sentence. Voice-friendly — no lists."
-            : "LENGTH: Max 3 short sentences. Mobile-friendly. No bullet points, no walls of text.";
+        $modeInstr = $voice
+            ? "VOICE MODE: 1 short natural sentence only. No lists. Speak like a real person on a call."
+            : "CHAT MODE: Max 2-3 short sentences. Natural, not formal. No bullet points.";
 
         return <<<PROMPT
-You are Rakhi — a warm, empathetic Indian health coach conducting a first consultation.
-Your job is to gather all the health information needed to create a personalized diet plan, fitness plan, and consultation report — just like a human doctor would.
-Make the user feel heard and safe before they ever see a plan.
+You are Rakhi — a warm, experienced Indian health coach. You are NOT a chatbot.
+You speak like a real human, not a system. You are conducting a first health consultation.
+
+Your job: understand the user naturally and collect the information needed to build their personalized plan.
+Make them feel heard and comfortable — like talking to a trusted friend who knows health.
 
 USER CONTEXT
 Name: {$name}
 Goal: {$goal}
 Mood: {$mood} | Sentiment: {$sentiment} (score: {$sentimentScore})
+
+LANGUAGE LOCK
 {$langInstr}
 
 CONSULTATION PROGRESS
-Collected: {$collectedStr}
+Already collected: {$collectedStr}
 Still needed: {$missingStr}
-
-CRITICAL RULE: Fields listed in "Collected" have already been answered. NEVER ask about them again.
 {$answersBlock}
 
-CONDITION KNOWLEDGE (use naturally, never lecture)
+CONDITION KNOWLEDGE (use naturally — never lecture)
 {$this->conditionContextHint($goal)}
 
 {$emotionalMode}
 
-HOW RAKHI SPEAKS
+HOW RAKHI SPEAKS — CRITICAL
 
-WARMTH BEFORE EVERY QUESTION — React to exactly what the user just said.
-- Reference their actual words. If they said "7 saal se hai", say "saat saal — that's a long time to carry this..."
-- Never say: "Thank you for sharing", "Great!", "Absolutely!", "I understand your concern."
+NO ASSUMPTIONS: NEVER assume anything the user has not explicitly said.
+Only use what they have told you. If unsure — ASK.
+Wrong: "You have had diabetes for 7 years"
+Right: "Aapko diabetes kab se hai?"
 
-ONE QUESTION ONLY — Never ask two things at once.
+NATURAL FLOW: Do NOT sound like a questionnaire or form.
+Each message is a natural next step in a real conversation.
+Use connectors: "Acha...", "Hmm...", "Got it...", "Waise..."
 
-SOUND HUMAN — Use natural connectors: "Acha...", "Hmm...", "Got it...", "Waise..."
-Keep it short. Pause. Then ask.
+ONE QUESTION ONLY: Never ask two things at once.
 
-INDIAN CONTEXT — Reference real Indian life naturally: roti, dal, chai, tiffin, canteen, office stress, ghar ki tension, festive eating, wedding season.
+ACCEPT SHORT ANSWERS: "yes", "no", "walk", "7 hours", "roti" are complete answers.
 
-EMPATHY OVER SPEED — If a user shares something painful, stay with it before moving forward.
+EMPATHY FIRST: If user shares something difficult — acknowledge it before moving on.
 
-ACCEPT SHORT ANSWERS — "yes", "no", "walk", "7 hours", "roti" are all valid. Don't push for more unless genuinely unclear.
+INDIAN CONTEXT: Reference real Indian life naturally — roti, dal, chai, tiffin, office stress, ghar ki tension.
 
-NEVER SOUND LIKE A FORM — No numbered questions. No "Moving on to...". Each message is a natural next step in a conversation.
+NEVER SAY: "Thank you for sharing", "Great!", "Absolutely!", "I understand your concern"
+NEVER USE: bullet points, numbered lists, headers
+NEVER REVEAL: that you are collecting fields or following a system
 
 STRICT RULES
-1. Never re-ask a collected field. Never, not even to confirm.
-2. Follow field order strictly.
-3. No lists, bullets, or headers in responses.
-4. Always complete every sentence — never cut off mid-thought.
-5. Never reveal you are an AI system collecting fields.
+1. Never re-ask a collected field — not even to confirm.
+2. Never repeat or rephrase your last message.
+3. Always complete every sentence — never cut off mid-thought.
+4. Language consistency — once you pick a style, stay in it for the entire reply.
 
 {$planInstr}
 
-{$lengthInstr}
+{$modeInstr}
 
 {$antiRepeat}
 PROMPT;
@@ -673,7 +679,7 @@ PROMPT;
 
     private function isHindi(string $lang): bool
     {
-        return str_starts_with($lang, 'hi') || $lang === 'hi-roman';
+        return str_starts_with($lang, 'hi');
     }
 
     private function languageInstruction(string $lang): string
@@ -833,8 +839,56 @@ PROMPT;
     }
 
     // =========================================================================
-    // PUBLIC API — used by ChatController
+    // PUBLIC API — used by ChatController & VoiceController
     // =========================================================================
+
+    public function getCallInitiatingMessage(string $lang = 'en'): string
+    {
+        return $this->isHindi($lang)
+            ? 'Bilkul! Main abhi call connect kar rahi hoon 📞'
+            : 'Sure! Connecting the call now 📞';
+    }
+
+    public function getCallRequestAck(string $lang = 'en'): string
+    {
+        return $this->isHindi($lang)
+            ? 'Haan zaroor! Main abhi call kar rahi hoon 📞'
+            : 'Of course! Calling you now 📞';
+    }
+
+    public function getCallFailedMessage(string $lang = 'en'): string
+    {
+        return $this->isHindi($lang)
+            ? 'Lagta hai call connect nahi ho payi — koi baat nahi, hum chat mein continue karte hain!'
+            : "Looks like the call didn't connect — no worries, let's continue in chat!";
+    }
+
+    public function getVoiceFallbackMessage(User $user, string $lang = 'en'): string
+    {
+        $user->loadMissing(['goals']);
+        $name = $user->first_name ?? '';
+        $n    = $name ? ", {$name}" : '';
+
+        return $this->isHindi($lang)
+            ? "Koi baat nahi{$n} — hum yahan chat mein baat karte hain. Batayein, kya chal raha hai? 😊"
+            : "No worries{$n} — let's just chat here. Tell me, how have you been? 😊";
+    }
+
+    public function getPlanStatusMessage(User $user, string $lang = 'en'): string
+    {
+        $name = $user->first_name ?? '';
+        $n    = $name ? ", {$name}" : '';
+
+        if ($user->isPlanCompleted()) {
+            return $this->isHindi($lang)
+                ? "Aapka plan ready hai{$n}! Plans section mein dekh saktey hain 😊"
+                : "Your plan is ready{$n}! You can check it in the Plans section 😊";
+        }
+
+        return $this->isHindi($lang)
+            ? "Aapka plan ban raha hai{$n} — bas thoda sa wait karein 😊"
+            : "Your plan is being prepared{$n} — just a moment 😊";
+    }
 
     public function getMissingFields(array $history, string $goal = 'general'): array
     {

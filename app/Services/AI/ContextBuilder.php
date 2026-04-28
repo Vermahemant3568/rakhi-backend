@@ -3,39 +3,58 @@
 namespace App\Services\AI;
 
 use App\Models\ChatMessage;
+use App\Models\ChatSession;
+use App\Models\Coach;
 use App\Models\DailyCheckin;
 use App\Models\MealLog;
 use App\Models\User;
+use App\Models\UserMemory;
 use App\Models\UserPlan;
+use App\Services\NLP\IntentDetector;
+use App\Services\NLP\MoodAnalyzer;
 use App\Services\Vector\UserMemoryService;
 use Illuminate\Support\Facades\Log;
 
 class ContextBuilder
 {
     public function __construct(
-        private UserMemoryService $memory
+        private UserMemoryService $memory,
+        private IntentDetector $intentDetector,
+        private MoodAnalyzer $moodAnalyzer,
     ) {}
 
     public function build(
         User $user,
         string $currentMessage,
         int $sessionId,
-        string $coachNamespace
+        string $coachNamespace,
+        ?int $parentChatSessionId = null,
+        ?Coach $coach = null
     ): array {
-
         $user->loadMissing(['goals']);
 
-        $msg     = trim(strtolower($currentMessage));
-        $msgType = $this->classifyMessage($msg, $sessionId);
+        $msg             = trim(strtolower($currentMessage));
+        $lastRakhiMsg    = $this->getLastRakhiMessage($sessionId, $parentChatSessionId);
+        $msgType         = $this->intentDetector->classifyDepth($msg, $lastRakhiMsg);
 
-        // Greeting: only history, zero DB/vector calls
+        // Coach profile — always resolve
+        $coachProfile = $this->buildCoachProfile($coach, $user);
+
+        // Emotional & behavioral signals — always detect
+        $emotionalContext = $this->buildEmotionalContext($currentMessage, $user->id);
+
+        // Lightweight memory for greetings — never return empty
         if ($msgType === 'greeting') {
+            $lightMemory = $this->getLightweightMemory($user->id);
             return [
-                'recent_history'    => $this->getRecentHistory($sessionId),
+                'msg_type'          => $msgType,
+                'coach_profile'     => $coachProfile,
+                'emotional_context' => $emotionalContext,
+                'recent_history'    => $this->getRecentHistory($sessionId, $parentChatSessionId),
                 'memories'          => [],
                 'knowledge'         => [],
-                'structured_memory' => [],
-                'checkin'           => null,
+                'structured_memory' => $lightMemory,
+                'checkin'           => $this->getTodayCheckin($user->id),
                 'meals_today'       => [],
                 'existing_plans'    => [],
             ];
@@ -49,157 +68,235 @@ class ContextBuilder
             Log::warning('Memory failed: ' . $e->getMessage());
         }
 
+        // For follow-ups: use recent history + structured memory, skip heavy vector calls
+        if ($msgType === 'follow_up') {
+            return [
+                'msg_type'          => $msgType,
+                'coach_profile'     => $coachProfile,
+                'emotional_context' => $emotionalContext,
+                'recent_history'    => $this->getRecentHistory($sessionId, $parentChatSessionId),
+                'memories'          => [],
+                'knowledge'         => [],
+                'structured_memory' => $this->compactStructured($structuredMemory, $msg),
+                'checkin'           => $this->getTodayCheckin($user->id),
+                'meals_today'       => [],
+                'existing_plans'    => [],
+            ];
+        }
+
         // Vector calls only for complex messages
         $memories  = [];
         $knowledge = [];
 
         if ($msgType === 'complex') {
             try {
-                // Short-term: recent session context (last 24h)
                 $shortTerm = $this->memory->recall($user, $currentMessage, limit: 2, type: 'short_term');
-                // Long-term: older relevant memories
                 $longTerm  = $this->memory->recall($user, $currentMessage, limit: 2, type: 'long_term');
-                // Merge: short-term first (more relevant), deduplicate
-                $memories  = array_values(array_unique(array_merge($shortTerm, $longTerm)));
+                // Condition-aware deduplication: short-term first
+                $memories  = $this->deduplicateMemories(array_merge($shortTerm, $longTerm));
             } catch (\Exception $e) {}
 
             try {
-                $knowledge = $this->memory->recallCoachKnowledge($coachNamespace, $currentMessage, limit: 1);
+                // Use coach namespace for condition-specific knowledge retrieval
+                $ns        = $coachNamespace ?: ($coachProfile['namespace'] ?? '');
+                $knowledge = $ns ? $this->memory->recallCoachKnowledge($ns, $currentMessage, limit: 1) : [];
             } catch (\Exception $e) {}
         }
 
         return [
-            'recent_history'    => $this->getRecentHistory($sessionId),
+            'msg_type'          => $msgType,
+            'coach_profile'     => $coachProfile,
+            'emotional_context' => $emotionalContext,
+            'recent_history'    => $this->getRecentHistory($sessionId, $parentChatSessionId),
             'memories'          => $this->trimArray($memories),
             'knowledge'         => $this->trimArray($knowledge),
             'structured_memory' => $this->compactStructured($structuredMemory, $msg),
-            'checkin'           => $msgType === 'complex' ? $this->getTodayCheckin($user->id) : null,
+            'checkin'           => $this->getTodayCheckin($user->id),
             'meals_today'       => $this->isMealRelated($msg) ? $this->getTodayMeals($user->id) : [],
             'existing_plans'    => $this->isPlanRelated($msg) ? $this->getExistingPlans($user->id) : [],
         ];
     }
 
     // ─────────────────────────────────────────
-    // MESSAGE CLASSIFIER
-    // Returns: 'greeting' | 'simple' | 'complex'
+    // COACH PROFILE BUILDER
+    // Builds full coach identity: tone, behavior, scope, condition
     // ─────────────────────────────────────────
 
-    private function classifyMessage(string $msg, int $sessionId): string
+    private function buildCoachProfile(?Coach $coach, User $user): array
     {
-        // Pure greetings and one-word acknowledgements — no context needed
-        if (preg_match('/^(hi|hey|hello|ok|okay|thanks|thank you|haan|hmm|yes|no|k|sure|got it|will try|noted|nice|great|good|cool|fine|theek|acha|accha|bilkul|shukriya|👍|😊|🙏)[\s!.]*$/', $msg)) {
-            return 'greeting';
+        if (!$coach) {
+            return [
+                'name'        => 'Rakhi',
+                'slug'        => 'general',
+                'speciality'  => 'general health',
+                'namespace'   => '',
+                'tone'        => 'warm, empathetic, practical',
+                'scope'       => 'general wellness',
+                'condition'   => $this->resolveUserCondition($user),
+                'stage'       => $this->resolveUserStage($user),
+                'goals'       => $user->goals->pluck('name')->join(', ') ?: 'general wellness',
+            ];
         }
 
-        // Short follow-up acknowledgements with no new info
-        if (strlen($msg) < 25 && preg_match('/^(okay will|sure will|i will|let me try|trying|understood|will do|sounds good|makes sense)/', $msg)) {
-            return 'greeting';
-        }
-
-        // Follow-up answer detection — short replies that answer Rakhi's previous question
-        // e.g. "abhi saam se", "kal se", "2 din se", "since yesterday", "1 hafte se"
-        if ($this->isFollowUpAnswer($msg, $sessionId)) {
-            return 'followup';
-        }
-
-        // Health keywords that always need full context
-        $healthKeywords = [
-            'sugar', 'blood', 'weight', 'sleep', 'stress', 'diet', 'eat', 'food',
-            'exercise', 'tired', 'pain', 'medicine', 'thyroid', 'pcos', 'diabetes',
-            'energy', 'mood', 'anxiety', 'period', 'pregnancy', 'insulin', 'bp',
-            'cholesterol', 'vitamin', 'protein', 'calories', 'workout', 'gym',
-            'numb', 'tingling', 'swelling', 'burning', 'cramp', 'weakness',
-            'fever', 'headache', 'dizzy', 'nausea', 'vomit', 'breathe',
-            'dard', 'pero', 'pair', 'haath', 'pet', 'sar', 'seena', 'kamar',
-            'khana', 'khaana', 'neend', 'thakan', 'dawai', 'tablet', 'injection',
-            'sujan', 'jalan', 'khujli', 'kamzori', 'chakkar', 'bukhaar', 'ulti',
-            'sans', 'dil', 'aankhein', 'peeshab', 'peshab', 'pyaas', 'bhookh',
-            'motapa', 'vajan', 'periods', 'mahavari', 'garbh', 'sugar level',
+        $toneMap = [
+            'pregnancy-coach'       => 'nurturing, gentle, reassuring — like a caring elder sister',
+            'pcos-thyroid-coach'    => 'validating, empathetic, science-backed — PCOS/thyroid are often dismissed, acknowledge that',
+            'diabetes-coach'        => 'calm, clinical-but-warm, safety-first — diabetes management is daily and exhausting',
+            'weight-loss-coach'     => 'encouraging, realistic, non-judgmental — no shame, only sustainable progress',
+            'mental-wellness-coach' => 'gentle, non-directive, emotionally safe — never push, always hold space',
+            'sleep-coach'           => 'calm, soothing, practical — sleep issues are frustrating, validate first',
+            'energy-coach'          => 'uplifting, motivating, grounded — acknowledge fatigue before suggesting fixes',
+            'stress-coach'          => 'calming, grounding, compassionate — stress is real, not weakness',
+            'fitness-coach'         => 'energetic, motivating, form-focused — celebrate effort not just results',
+            'diet-nutrition-coach'  => 'practical, non-restrictive, culturally aware — Indian food context always',
+            'postpartum-coach'      => 'gentle, patient, non-pressuring — new mothers need grace not goals',
+            'habit-coach'           => 'consistent, encouraging, systems-focused — small wins matter',
+            'vision-coach'          => 'calm, informative, preventive — eye health is often neglected',
         ];
 
-        foreach ($healthKeywords as $kw) {
-            if (str_contains($msg, $kw)) {
-                return 'complex';
-            }
-        }
-
-        if (strlen($msg) < 40) {
-            return 'simple';
-        }
-
-        return 'complex';
-    }
-
-    /**
-     * Detect if this short message is a follow-up answer to Rakhi's last question.
-     * Checks two things:
-     * 1. The message looks like a time/duration/quantity answer
-     * 2. Rakhi's last message ended with a question
-     */
-    private function isFollowUpAnswer(string $msg, int $sessionId): bool
-    {
-        // Time/duration/quantity patterns that are typical follow-up answers
-        $followUpPatterns = [
-            // Duration answers: "2 din se", "kal se", "saam se", "subah se", "1 hafte se"
-            '/\b(se|since|from|ago|pehle|pahle)\b/',
-            // Time of day answers
-            '/\b(saam|subah|raat|dopahar|morning|evening|night|afternoon|abhi|kal|aaj|parso)\b/',
-            // Number + unit answers: "2 din", "3 ghante", "1 week", "do hafte"
-            '/\b(\d+|ek|do|teen|char|paanch)\s*(din|ghante|hafte|mahine|week|month|hour|day|minute)\b/',
-            // Yes/no with detail: "haan bahut", "nahi itna", "thoda sa"
-            '/^(haan|nahi|nai|ha|na)\s+\w+/',
-            // Single word quantity answers
-            '/^(bahut|thoda|zyada|kam|bilkul|kabhi kabhi|aksar|hamesha|rarely|sometimes|always|never)[\s!.]*$/',
+        $scopeMap = [
+            'pregnancy-coach'       => 'pregnancy nutrition, safe exercise, trimester-specific guidance, symptom support',
+            'pcos-thyroid-coach'    => 'hormonal health, cycle regulation, insulin resistance, thyroid management',
+            'diabetes-coach'        => 'blood sugar management, meal timing, medication awareness, complication prevention',
+            'weight-loss-coach'     => 'sustainable fat loss, body composition, metabolic health, behavioral change',
+            'mental-wellness-coach' => 'emotional wellbeing, anxiety, stress, mindset, self-compassion',
+            'sleep-coach'           => 'sleep hygiene, circadian rhythm, insomnia, sleep quality improvement',
+            'energy-coach'          => 'fatigue management, nutrition for energy, activity pacing, recovery',
+            'stress-coach'          => 'stress reduction, cortisol management, relaxation techniques, resilience',
+            'fitness-coach'         => 'exercise programming, strength, cardio, mobility, injury prevention',
+            'diet-nutrition-coach'  => 'balanced nutrition, Indian diet, meal planning, macros, micronutrients',
+            'postpartum-coach'      => 'postnatal recovery, breastfeeding nutrition, gentle fitness, emotional support',
+            'habit-coach'           => 'habit formation, routine building, consistency, goal tracking',
+            'vision-coach'          => 'eye health, screen time, nutrition for eyes, preventive care',
         ];
 
-        $isFollowUpLike = false;
-        foreach ($followUpPatterns as $pattern) {
-            if (preg_match($pattern, $msg)) {
-                $isFollowUpLike = true;
-                break;
-            }
-        }
-
-        if (!$isFollowUpLike) {
-            return false;
-        }
-
-        // Confirm Rakhi's last message was a question
-        $lastRakhiMessage = ChatMessage::where('session_id', $sessionId)
-            ->where('role', 'rakhi')
-            ->orderBy('created_at', 'desc')
-            ->value('message');
-
-        if (!$lastRakhiMessage) {
-            return false;
-        }
-
-        // Check if last Rakhi message ended with a question mark (any language)
-        return str_contains($lastRakhiMessage, '?');
+        return [
+            'name'        => $coach->name ?? 'Rakhi',
+            'slug'        => $coach->slug ?? 'general',
+            'speciality'  => $coach->speciality ?? 'general health',
+            'namespace'   => $coach->pinecone_namespace ?? '',
+            'tone'        => $toneMap[$coach->slug] ?? 'warm, empathetic, practical',
+            'scope'       => $scopeMap[$coach->slug] ?? 'general wellness',
+            'condition'   => $this->resolveUserCondition($user),
+            'stage'       => $this->resolveUserStage($user),
+            'goals'       => $user->goals->pluck('name')->join(', ') ?: 'general wellness',
+        ];
     }
 
-    private function isMealRelated(string $msg): bool
+    private function resolveUserCondition(User $user): string
     {
-        return (bool) preg_match('/\b(eat|food|meal|diet|breakfast|lunch|dinner|snack|khana|khaana|roti|rice|dal|sabzi|calories|protein|carb|fat|nutrition)\b/', $msg);
+        // Check stored memory first (most accurate)
+        $memCondition = UserMemory::where('user_id', $user->id)
+            ->where('key', 'health_condition')
+            ->value('value');
+
+        if ($memCondition) return $memCondition;
+
+        // Derive from primary goal
+        $primaryGoal = $user->goals->first()?->slug ?? '';
+        return match($primaryGoal) {
+            'manage-diabetes'      => 'diabetes',
+            'manage-pcos'          => 'PCOS',
+            'thyroid-management'   => 'thyroid',
+            'pregnancy-wellness'   => 'pregnancy',
+            'postpartum-recovery'  => 'postpartum',
+            'lose-weight'          => 'weight management',
+            'build-muscle'         => 'fitness',
+            'improve-mental-health'=> 'mental wellness',
+            'improve-sleep'        => 'sleep issues',
+            'boost-energy'         => 'low energy / fatigue',
+            'reduce-stress'        => 'stress management',
+            default                => 'general wellness',
+        };
     }
 
-    private function isPlanRelated(string $msg): bool
+    private function resolveUserStage(User $user): string
     {
-        return (bool) preg_match('/\b(plan|routine|schedule|program|suggest|recommend|what should i|how should i|mujhe batao|kya karna chahiye|kya khana chahiye)\b/', $msg);
+        // Check stored current_stage memory
+        $stage = UserMemory::where('user_id', $user->id)
+            ->where('key', 'current_stage')
+            ->value('value');
+
+        return $stage ?? '';
+    }
+
+    // ─────────────────────────────────────────
+    // EMOTIONAL CONTEXT BUILDER
+    // Tracks mood, energy, sleep, adherence signals
+    // ─────────────────────────────────────────
+
+    private function buildEmotionalContext(string $message, int $userId): array
+    {
+        $mood      = $this->moodAnalyzer->analyze($message);
+        $energy    = $this->moodAnalyzer->detectEnergyLevel($message);
+        $adherence = $this->moodAnalyzer->detectAdherence($message);
+
+        // Pull stored emotional state from memory
+        $storedEmotionalState = UserMemory::where('user_id', $userId)
+            ->where('key', 'emotional_state')
+            ->value('value');
+
+        // Pull recent checkin for sleep/energy signals
+        $checkin = DailyCheckin::where('user_id', $userId)
+            ->where('checkin_date', today())
+            ->first();
+
+        return [
+            'current_mood'    => $mood,
+            'energy_level'    => $energy !== 'normal' ? $energy : ($checkin?->energy_level ?? 'normal'),
+            'sleep_last_night'=> $checkin?->sleep_hours ?? null,
+            'adherence'       => $adherence !== 'unknown' ? $adherence : null,
+            'stored_state'    => $storedEmotionalState,
+            'exercise_today'  => $checkin?->exercise_done ?? null,
+        ];
+    }
+
+    // ─────────────────────────────────────────
+    // LIGHTWEIGHT MEMORY (for greetings)
+    // Returns only core identity keys — never empty
+    // ─────────────────────────────────────────
+
+    private function getLightweightMemory(int $userId): array
+    {
+        $coreKeys = ['health_condition', 'main_goal', 'current_stage', 'emotional_state'];
+
+        $memory = UserMemory::where('user_id', $userId)
+            ->whereIn('key', $coreKeys)
+            ->orderBy('updated_at', 'desc')
+            ->get()
+            ->pluck('value', 'key')
+            ->toArray();
+
+        return array_filter($memory, fn($v) => !empty($v));
     }
 
     // ─────────────────────────────────────────
     // HISTORY
     // ─────────────────────────────────────────
 
-    public function buildRecentHistoryOnly(int $sessionId): array
+    public function buildRecentHistoryOnly(int $sessionId, ?int $parentChatSessionId = null): array
     {
-        return $this->getRecentHistory($sessionId);
+        return $this->getRecentHistory($sessionId, $parentChatSessionId);
     }
 
-    private function getRecentHistory(int $sessionId): array
+    private function getRecentHistory(int $sessionId, ?int $parentChatSessionId = null): array
     {
-        return ChatMessage::where('session_id', $sessionId)
+        $session   = ChatSession::find($sessionId);
+        $unifiedId = $session?->unified_session_id;
+
+        // If unified_session_id is set, use it to pull the full cross-mode thread
+        if ($unifiedId) {
+            $sessionIds = ChatSession::where('unified_session_id', $unifiedId)
+                ->where('user_id', $session->user_id)
+                ->pluck('id')
+                ->toArray();
+        } else {
+            // Fallback for sessions created before the unified_session_id migration
+            $sessionIds = array_values(array_filter(array_unique([$sessionId, $parentChatSessionId])));
+        }
+
+        return ChatMessage::whereIn('session_id', $sessionIds)
+            ->when($session?->user_id, fn($q) => $q->where('user_id', $session->user_id))
             ->orderBy('created_at', 'desc')
             ->take(20)
             ->get()
@@ -208,43 +305,57 @@ class ContextBuilder
                 'role'    => $m->role,
                 'message' => $this->shorten($m->message),
             ])
+            ->values()
             ->toArray();
     }
 
-    public function getLastAiResponse(int $sessionId): string
+    private function getLastRakhiMessage(int $sessionId, ?int $parentChatSessionId = null): ?string
     {
-        return ChatMessage::where('session_id', $sessionId)
+        $session   = ChatSession::find($sessionId);
+        $unifiedId = $session?->unified_session_id;
+
+        if ($unifiedId) {
+            $sessionIds = ChatSession::where('unified_session_id', $unifiedId)
+                ->when($session?->user_id, fn($q) => $q->where('user_id', $session->user_id))
+                ->pluck('id')
+                ->toArray();
+        } else {
+            $sessionIds = array_values(array_filter(array_unique([$sessionId, $parentChatSessionId])));
+        }
+
+        return ChatMessage::whereIn('session_id', $sessionIds)
             ->where('role', 'rakhi')
             ->orderBy('created_at', 'desc')
-            ->value('message') ?? '';
+            ->value('message');
+    }
+
+    public function getLastAiResponse(int $sessionId, ?int $parentChatSessionId = null): string
+    {
+        return $this->getLastRakhiMessage($sessionId, $parentChatSessionId) ?? '';
     }
 
     // ─────────────────────────────────────────
-    // STRUCTURED MEMORY — priority filter
+    // STRUCTURED MEMORY — condition-aware priority filter
     // ─────────────────────────────────────────
 
     private function compactStructured(array $memory, string $msg = ''): array
     {
         if (empty($memory)) return [];
 
-        // Always include — core identity of the user
-        $alwaysInclude = ['health_condition', 'main_goal', 'diabetes_type', 'medications', 'lifestyle'];
+        // Always include — core identity
+        $alwaysInclude = ['health_condition', 'main_goal', 'current_stage', 'diabetes_type', 'medications', 'lifestyle'];
 
         // Include when message is topically relevant
         $conditional = [
-            'diet_habit'     => $this->isMealRelated($msg),
-            'food_preference'=> $this->isMealRelated($msg),
-            'activity_level' => str_contains($msg, 'exercise') || str_contains($msg, 'workout')
-                                || str_contains($msg, 'walk')   || str_contains($msg, 'gym')
-                                || str_contains($msg, 'active') || str_contains($msg, 'fitness'),
-            'sleep_pattern'  => str_contains($msg, 'sleep')  || str_contains($msg, 'neend')
-                                || str_contains($msg, 'tired') || str_contains($msg, 'rest'),
-            'stress_level'   => str_contains($msg, 'stress') || str_contains($msg, 'tension')
-                                || str_contains($msg, 'anxiety') || str_contains($msg, 'pressure'),
-            'challenges'     => strlen($msg) > 30, // include for any substantive message
-            'family_context' => str_contains($msg, 'family') || str_contains($msg, 'husband')
-                                || str_contains($msg, 'wife')  || str_contains($msg, 'kids')
-                                || str_contains($msg, 'ghar'),
+            'diet_habit'       => $this->isMealRelated($msg),
+            'food_preference'  => $this->isMealRelated($msg),
+            'activity_level'   => (bool) preg_match('/\b(exercise|workout|walk|gym|active|fitness|vyayam)\b/', $msg),
+            'sleep_pattern'    => (bool) preg_match('/\b(sleep|neend|tired|rest|insomnia)\b/', $msg),
+            'stress_level'     => (bool) preg_match('/\b(stress|tension|anxiety|pressure|pareshan)\b/', $msg),
+            'emotional_state'  => true, // always include emotional state
+            'adherence_pattern'=> true, // always include adherence
+            'challenges'       => strlen($msg) > 30,
+            'family_context'   => (bool) preg_match('/\b(family|husband|wife|kids|ghar|bachche)\b/', $msg),
         ];
 
         $result = [];
@@ -266,6 +377,87 @@ class ContextBuilder
     }
 
     // ─────────────────────────────────────────
+    // MEMORY DEDUPLICATION
+    // ─────────────────────────────────────────
+
+    private function deduplicateMemories(array $memories): array
+    {
+        $seen   = [];
+        $result = [];
+
+        foreach ($memories as $mem) {
+            $key = md5(strtolower(trim(is_array($mem) ? json_encode($mem) : $mem)));
+            if (!isset($seen[$key])) {
+                $seen[$key] = true;
+                $result[]   = $mem;
+            }
+        }
+
+        return array_slice($result, 0, 4); // max 4 memories
+    }
+
+    // ─────────────────────────────────────────
+    // TOPIC HELPERS
+    // ─────────────────────────────────────────
+
+    private function isMealRelated(string $msg): bool
+    {
+        return (bool) preg_match('/\b(eat|food|meal|diet|breakfast|lunch|dinner|snack|khana|khaana|roti|rice|dal|sabzi|calories|protein|carb|fat|nutrition)\b/', $msg);
+    }
+
+    private function isPlanRelated(string $msg): bool
+    {
+        return (bool) preg_match('/\b(plan|routine|schedule|program|suggest|recommend|what should i|how should i|mujhe batao|kya karna chahiye|kya khana chahiye)\b/', $msg);
+    }
+
+    // ─────────────────────────────────────────
+    // CHECKIN / MEALS / PLANS
+    // ─────────────────────────────────────────
+
+    private function getTodayCheckin(int $userId): ?array
+    {
+        $c = DailyCheckin::where('user_id', $userId)
+            ->where('checkin_date', today())
+            ->first();
+
+        if (!$c) return null;
+
+        return [
+            'mood'          => $c->mood,
+            'energy'        => $c->energy_level,
+            'sleep'         => $c->sleep_hours,
+            'exercise_done' => $c->exercise_done,
+            'notes'         => $c->notes ? $this->shorten($c->notes, 80) : null,
+        ];
+    }
+
+    private function getTodayMeals(int $userId): array
+    {
+        return MealLog::where('user_id', $userId)
+            ->where('logged_date', today())
+            ->orderBy('created_at', 'asc')
+            ->take(3)
+            ->get()
+            ->map(fn($m) => [
+                'meal'     => $m->meal_name,
+                'time'     => $m->created_at?->format('H:i'),
+                'calories' => $m->calories,
+                'protein'  => $m->protein,
+            ])
+            ->toArray();
+    }
+
+    private function getExistingPlans(int $userId): array
+    {
+        return UserPlan::where('user_id', $userId)
+            ->orderByDesc('generated_at')
+            ->take(2)
+            ->get()
+            ->map(fn($p) => ['type' => $p->plan_type])
+            ->toArray();
+    }
+
+    // ─────────────────────────────────────────
     // TOKEN HELPERS
     // ─────────────────────────────────────────
 
@@ -283,47 +475,5 @@ class ContextBuilder
             }
             return is_string($item) ? $this->shorten($item) : $item;
         }, $items);
-    }
-
-    // ─────────────────────────────────────────
-    // CHECKIN / MEALS / PLANS
-    // ─────────────────────────────────────────
-
-    private function getTodayCheckin(int $userId): ?array
-    {
-        $c = DailyCheckin::where('user_id', $userId)
-            ->where('checkin_date', today())
-            ->first();
-
-        if (!$c) return null;
-
-        return [
-            'mood'   => $c->mood,
-            'energy' => $c->energy_level,
-            'sleep'  => $c->sleep_hours,
-        ];
-    }
-
-    private function getTodayMeals(int $userId): array
-    {
-        return MealLog::where('user_id', $userId)
-            ->where('logged_date', today())
-            ->take(2)
-            ->get()
-            ->map(fn($m) => [
-                'meal' => $m->meal_name,
-                'time' => $m->meal_time,
-            ])
-            ->toArray();
-    }
-
-    private function getExistingPlans(int $userId): array
-    {
-        return UserPlan::where('user_id', $userId)
-            ->latest()
-            ->take(2)
-            ->get()
-            ->map(fn($p) => ['type' => $p->plan_type])
-            ->toArray();
     }
 }

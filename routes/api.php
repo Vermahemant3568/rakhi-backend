@@ -17,6 +17,8 @@ Route::prefix('auth')->group(function () {
     Route::post('/send-otp',    [AuthController::class, 'sendOtp']);
     Route::post('/verify-otp', [AuthController::class, 'verifyOtp']);
     Route::post('/logout',     [AuthController::class, 'logout']);
+    // Refresh uses the expired token directly — no user.auth middleware
+    Route::post('/refresh',    [AuthController::class, 'refresh']);
 });
 
 // Public data for onboarding screens
@@ -32,6 +34,7 @@ Route::middleware(['user.auth'])->group(function () {
 
     // Auth
     Route::get('/me',              [AuthController::class, 'me']);
+    Route::get('/auth/validate',   [AuthController::class, 'validate']);
     Route::post('/update-profile', [AuthController::class, 'updateProfile']);
     Route::post('/update-fcm',     [AuthController::class, 'updateFcmToken']);
 
@@ -69,18 +72,25 @@ Route::middleware(['user.auth'])->group(function () {
     // Chat
     Route::prefix('chat')->group(function () {
         Route::post('/session/start',         [ChatController::class, 'startSession']);
-        Route::post('/session/decline-call',  [ChatController::class, 'declineCall']);
-        Route::post('/session/initiate-call', [ChatController::class, 'initiateConsultationCall']);
-        Route::post('/send',                  [ChatController::class, 'sendMessage']);
-        Route::get('/history/{sessionId}',    [ChatController::class, 'history']);
+        Route::middleware('session.owner')->group(function () {
+            Route::post('/session/decline-call',  [ChatController::class, 'declineCall']);
+            Route::post('/session/initiate-call', [ChatController::class, 'initiateConsultationCall']);
+            Route::post('/send',                  [ChatController::class, 'sendMessage']);
+            Route::get('/history/{sessionId}',         [ChatController::class, 'history']);
+            Route::get('/unified-history/{sessionId}', [ChatController::class, 'unifiedHistory']);
+        });
         Route::get('/sessions',               [ChatController::class, 'sessions']);
     });
 
     // Voice
     Route::prefix('voice')->group(function () {
         Route::post('/session/start',  [VoiceController::class, 'startSession']);
-        Route::post('/send',           [VoiceController::class, 'sendVoice']);
-        Route::post('/session/end',    [VoiceController::class, 'endSession']);
+        Route::middleware('session.owner')->group(function () {
+            Route::post('/send',           [VoiceController::class, 'sendVoice']);
+            Route::post('/session/end',    [VoiceController::class, 'endSession']);
+        });
+        // STT diagnostic — test without a full voice session
+        Route::post('/test-stt',       [VoiceController::class, 'testStt']);
     });
 
     // Progress
@@ -93,8 +103,12 @@ Route::middleware(['user.auth'])->group(function () {
 
     // Plans (PDF)
     Route::prefix('plans')->group(function () {
-        Route::get('/',                [PlanController::class, 'index']);
-        Route::get('/{id}/download',   [PlanController::class, 'download']);
+        Route::get('/',                     [PlanController::class, 'index']);
+        Route::get('/status',               [PlanController::class, 'status']);
+        Route::get('/{id}',                 [PlanController::class, 'show']);
+        Route::get('/{id}/download',        [PlanController::class, 'download']);
+        Route::get('/{planType}/history',   [PlanController::class, 'history']);
+        Route::post('/regenerate',          [PlanController::class, 'regenerate']);
     });
 });
 

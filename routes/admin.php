@@ -120,6 +120,7 @@ Route::prefix('admin')->group(function () {
         Route::get('/jobs',                      [JobMonitorController::class, 'index']);
         Route::post('/jobs/retry-failed',        [JobMonitorController::class, 'retryFailed']);
         Route::post('/jobs/retry-all-failed',    [JobMonitorController::class, 'retryAllFailed']);
+        Route::post('/jobs/reset-stuck-plan',    [JobMonitorController::class, 'resetStuckPlan']);
         Route::delete('/jobs/failed/{id}',       [JobMonitorController::class, 'deleteFailed']);
         Route::delete('/jobs/clear-failed',      [JobMonitorController::class, 'clearAllFailed']);
         Route::delete('/jobs/clear-stale',       [JobMonitorController::class, 'clearStaleJobs']);
@@ -131,6 +132,7 @@ Route::prefix('admin')->group(function () {
             Route::get('/streaks',       [ProgressController::class, 'streaks']);
             Route::get('/summary',       [ProgressController::class, 'summary']);
             Route::get('/chat-activity', [ProgressController::class, 'chatActivity']);
+            Route::get('/stuck-plans',   [ProgressController::class, 'stuckPlans']);
         });
     });
 });

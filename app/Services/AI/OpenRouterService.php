@@ -53,6 +53,12 @@ class OpenRouterService
             'content' => $prompt,
         ];
 
+        // Sanitize all message content to valid UTF-8 before encoding
+        $messages = array_map(function ($msg) {
+            $msg['content'] = mb_convert_encoding($msg['content'], 'UTF-8', 'UTF-8');
+            return $msg;
+        }, $messages);
+
         $response = Http::withHeaders([
             'Authorization' => 'Bearer ' . $apiKey,
             'Content-Type'  => 'application/json',

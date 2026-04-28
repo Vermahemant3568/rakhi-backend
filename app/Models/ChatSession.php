@@ -15,13 +15,19 @@ class ChatSession extends Model
 
     protected $fillable = [
         'user_id', 'coach_id', 'session_type',
-        'is_first_consultation', 'status', 'detected_language', 'started_at', 'ended_at',
+        'is_first_consultation', 'status', 'detected_language',
+        'detected_script', 'started_at', 'ended_at',
+        'parent_chat_session_id', 'unified_session_id',
+        'call_failed_count', 'stt_fail_count',
+        'call_invite_pending', 'voice_fallback_active',
     ];
 
     protected $casts = [
-        'is_first_consultation' => 'boolean',
-        'started_at'            => 'datetime',
-        'ended_at'              => 'datetime',
+        'is_first_consultation'  => 'boolean',
+        'call_invite_pending'    => 'boolean',
+        'voice_fallback_active'  => 'boolean',
+        'started_at'             => 'datetime',
+        'ended_at'               => 'datetime',
     ];
 
     public function user()
@@ -37,5 +43,35 @@ class ChatSession extends Model
     public function messages()
     {
         return $this->hasMany(ChatMessage::class, 'session_id');
+    }
+
+    /**
+     * All sessions in the same unified conversation thread (voice + chat).
+     */
+    public function unifiedSessions()
+    {
+        return $this->hasMany(ChatSession::class, 'unified_session_id', 'unified_session_id')
+            ->where('user_id', $this->user_id);
+    }
+
+    /**
+     * All messages across the entire unified conversation thread.
+     */
+    public function unifiedMessages()
+    {
+        $rootId = $this->unified_session_id ?? $this->id;
+
+        $sessionIds = ChatSession::where('unified_session_id', $rootId)
+            ->where('user_id', $this->user_id)
+            ->pluck('id');
+
+        // If no sessions found via unified_session_id, fall back to just this session
+        if ($sessionIds->isEmpty()) {
+            $sessionIds = collect([$this->id]);
+        }
+
+        return ChatMessage::whereIn('session_id', $sessionIds)
+            ->where('user_id', $this->user_id)
+            ->orderBy('created_at', 'asc');
     }
 }

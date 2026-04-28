@@ -73,6 +73,8 @@ class UserMemoryService
         string $query,
         int $limit = 5
     ): array {
+        if (empty($coachNamespace)) return [];
+
         $vector = $this->embedder->embed($query);
         if (empty($vector)) return [];
 
@@ -82,10 +84,11 @@ class UserMemoryService
             topK: $limit
         );
 
-        return array_map(
+        // Filter by relevance score to avoid low-quality knowledge injection
+        return array_values(array_map(
             fn($m) => $m['metadata']['title'] . ': ' . ($m['metadata']['message'] ?? ''),
-            $matches
-        );
+            array_filter($matches, fn($m) => ($m['score'] ?? 0) >= 0.70)
+        ));
     }
 
     /**

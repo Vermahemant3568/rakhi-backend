@@ -27,6 +27,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'admin.auth'          => \App\Http\Middleware\AdminAuth::class,
             'user.auth'           => \App\Http\Middleware\UserAuth::class,
             'subscription.check'  => \App\Http\Middleware\SubscriptionCheck::class,
+            'session.owner'       => \App\Http\Middleware\EnsureSessionOwnership::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
